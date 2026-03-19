@@ -23,14 +23,22 @@ jobs:
           echo "RUN_ID=${{ fromJson(github.event.inputs.port_payload).run.id }}" >> $GITHUB_ENV
 
       # 2. AUTOMATICALLY ENABLE GITHUB PAGES VIA API
+      # 2. AUTOMATICALLY ENABLE GITHUB PAGES VIA API
       - name: Enable GitHub Pages via API
         run: |
-          curl -X POST \
-            -H "Authorization: token ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
+          # This first call checks if Pages is already enabled
+          # The second call (POST) enables it if the first one fails
+          curl -L \
+            -X POST \
             -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
             https://api.github.com/repos/Meghana-shetty/${{ env.REPO_NAME }}/pages \
-            -d '{"source":{"branch":"main","path":"/"}}' || echo "Pages already enabled or setup"
-
+            -d '{"source":{"branch":"main","path":"/"}}' || echo "Pages might already be active"
+          
+          # Give GitHub 5 seconds to process the infrastructure change
+          sleep 5
+          
       # 3. Checkout the target repo code
       - name: Checkout Target Repository
         uses: actions/checkout@v4
