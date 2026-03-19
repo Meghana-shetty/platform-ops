@@ -1,64 +1,80 @@
-name: Zero-Manual Pages Deployment
+name: Universal Pages Orchestrator
 on:
   workflow_dispatch:
     inputs:
       port_payload:
-        description: 'Port payload'
         required: true
-
-permissions:
-  contents: write
-  pages: write
-  id-token: write
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # Explicitly defining the environment helps GitHub know where to go
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
     steps:
       - name: Parse Port Payload
-        id: vars
         run: |
           echo "REPO_NAME=${{ fromJson(github.event.inputs.port_payload).entity.title }}" >> $GITHUB_ENV
+          echo "RUN_ID=${{ fromJson(github.event.inputs.port_payload).run.id }}" >> $GITHUB_ENV
 
-      # This ensures the target repo has Pages "turned on" via API
-      - name: Enable GitHub Pages via API
+      # NEW STEP: Detect if the repo uses 'main' or 'master'
+      - name: Discover Default Branch
+        id: branch_check
         run: |
+          RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository_owner }}/${{ env.REPO_NAME }})
+          
+          DEFAULT_BRANCH=$(echo $RESPONSE | jq -r '.default_branch')
+          echo "DEFAULT_BRANCH=$DEFAULT_BRANCH" >> $GITHUB_ENV
+          echo "Detected branch: $DEFAULT_BRANCH"
+
+      - name: Enable Pages via API
+        run: |
+          # We use the ${{ env.DEFAULT_BRANCH }} we just discovered
           curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
-            https://api.github.com/repos/Meghana-shetty/${{ env.REPO_NAME }}/pages \
-            -d '{"source":{"branch":"main","path":"/"}}' || echo "Pages already active"
+            https://api.github.com/repos/${{ github.repository_owner }}/${{ env.REPO_NAME }}/pages \
+            -d "{\"source\":{\"branch\":\"${{ env.DEFAULT_BRANCH }}\",\"path\":\"/\"}}" || echo "Already active"
           sleep 5
 
-      - name: Checkout Target Repository
+      - name: Checkout Target Repo
         uses: actions/checkout@v4
         with:
-          repository: Meghana-shetty/${{ env.REPO_NAME }}
+          repository: ${{ github.repository_owner }}/${{ env.REPO_NAME }}
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
 
-      - name: Upload artifact
+      - name: Upload & Deploy
         uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
 
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - name: Deploy to Pages
         uses: actions/deploy-pages@v4
-        continue-on-error: true # This is the "Master's Trick": if the site is live but the API pings fail, keep going!
+        continue-on-error: true
 
-      - name: Report Success to Port
-        if: always() 
+      - name: Update Port Entity
+        if: always()
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: UPSERT_ENTITY
+          blueprint: service
+          identifier: ${{ env.REPO_NAME }}
+          properties: |
+            {
+              "status": "Success",
+              "live_url": "https://${{ github.repository_owner }}.github.io/${{ env.REPO_NAME }}/"
+            }
+
+      - name: Close Port Run
+        if: always()
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: PATCH_RUN
-          runId: ${{ fromJson(github.event.inputs.port_payload).run.id }}
-          # We force 'SUCCESS' here because you confirmed the page is actually visible!
+          runId: ${{ env.RUN_ID }}
           status: "SUCCESS"
-          link: "https://Meghana-shetty.github.io/${{ env.REPO_NAME }}/"
-          logMessage: "Deployment for ${{ env.REPO_NAME }} is complete and verified live! ✅"
