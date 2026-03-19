@@ -3,28 +3,52 @@ on:
   workflow_dispatch:
     inputs:
       port_payload:
-        description: 'The full payload from Port'
+        description: 'Port payload'
         required: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Tell Port we are starting
+      # 1. This step tells Port "I have started the work"
+      - name: Report Start to Port
         uses: port-labs/port-github-action@v1
         with:
-          identifier: ${{ github.event.inputs.port_payload.context.entity }}
-          blueprint: service
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ fromJson(github.event.inputs.port_payload).run.id }}
           status: "IN_PROGRESS"
+          logMessage: "Deployment started for ${{ fromJson(github.event.inputs.port_payload).entity.title }}... 🚀"
 
-      - name: Run your actual Deployment logic
+      # 2. This is where your actual deployment logic (Ansible, K8s, etc.) would go
+      - name: Actual Deployment Step
         run: |
-          echo "Deploying to ${{ github.event.inputs.port_payload.payload.properties.environment }}..."
-          # Your Docker/Ansible/K8s commands go here!
+          echo "Deploying to: ${{ fromJson(github.event.inputs.port_payload).inputs.environment }}"
+          echo "Target Repo URL: ${{ fromJson(github.event.inputs.port_payload).entity.properties.url }}"
+          # Simulating work...
+          sleep 5
 
-      - name: Tell Port we are finished
+      # 3. This step tells Port "I am finished!"
+      - name: Report Success to Port
+        if: success()
         uses: port-labs/port-github-action@v1
         with:
-          identifier: ${{ github.event.inputs.port_payload.context.entity }}
-          blueprint: service
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ fromJson(github.event.inputs.port_payload).run.id }}
           status: "SUCCESS"
+          logMessage: "Deployment to ${{ fromJson(github.event.inputs.port_payload).inputs.environment }} finished successfully! ✅"
+
+      # 4. This step tells Port if something went wrong
+      - name: Report Failure to Port
+        if: failure()
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ fromJson(github.event.inputs.port_payload).run.id }}
+          status: "FAILURE"
+          logMessage: "The deployment failed. Please check the GitHub logs. ❌"
