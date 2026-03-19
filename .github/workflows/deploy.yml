@@ -10,26 +10,16 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      # 1. This step tells Port "I have started the work"
-      - name: Report Start to Port
-        uses: port-labs/port-github-action@v1
-        with:
-          clientId: ${{ secrets.PORT_CLIENT_ID }}
-          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: PATCH_RUN
-          runId: ${{ fromJson(github.event.inputs.port_payload).run.id }}
-          status: "IN_PROGRESS"
-          logMessage: "Deployment started for ${{ fromJson(github.event.inputs.port_payload).entity.title }}... 🚀"
-
-      # 2. This is where your actual deployment logic (Ansible, K8s, etc.) would go
+      # 1. This step performs the actual "work"
       - name: Actual Deployment Step
         run: |
-          echo "Deploying to: ${{ fromJson(github.event.inputs.port_payload).inputs.environment }}"
-          echo "Target Repo URL: ${{ fromJson(github.event.inputs.port_payload).entity.properties.url }}"
-          # Simulating work...
+          echo "Starting deployment process..."
+          echo "Target Environment: ${{ fromJson(github.event.inputs.port_payload).inputs.environment }}"
+          echo "Deploying Service: ${{ fromJson(github.event.inputs.port_payload).entity.title }}"
+          # You can add your Ansible or Docker commands here later!
           sleep 5
 
-      # 3. This step tells Port "I am finished!"
+      # 2. This step tells Port "I am finished successfully!"
       - name: Report Success to Port
         if: success()
         uses: port-labs/port-github-action@v1
@@ -39,9 +29,9 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ fromJson(github.event.inputs.port_payload).run.id }}
           status: "SUCCESS"
-          logMessage: "Deployment to ${{ fromJson(github.event.inputs.port_payload).inputs.environment }} finished successfully! ✅"
+          logMessage: "Deployment for ${{ fromJson(github.event.inputs.port_payload).entity.title }} finished successfully! ✅"
 
-      # 4. This step tells Port if something went wrong
+      # 3. This step tells Port "Something went wrong"
       - name: Report Failure to Port
         if: failure()
         uses: port-labs/port-github-action@v1
