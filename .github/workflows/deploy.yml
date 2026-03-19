@@ -1,0 +1,30 @@
+name: Port Deployment
+on:
+  workflow_dispatch:
+    inputs:
+      port_payload:
+        description: 'The full payload from Port'
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tell Port we are starting
+        uses: port-labs/port-github-action@v1
+        with:
+          identifier: ${{ github.event.inputs.port_payload.context.entity }}
+          blueprint: service
+          status: "IN_PROGRESS"
+
+      - name: Run your actual Deployment logic
+        run: |
+          echo "Deploying to ${{ github.event.inputs.port_payload.payload.properties.environment }}..."
+          # Your Docker/Ansible/K8s commands go here!
+
+      - name: Tell Port we are finished
+        uses: port-labs/port-github-action@v1
+        with:
+          identifier: ${{ github.event.inputs.port_payload.context.entity }}
+          blueprint: service
+          status: "SUCCESS"
