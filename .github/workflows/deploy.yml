@@ -14,39 +14,31 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # This environment block is required to prevent the 404 error
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      # 1. Extract variables for cleaner code
       - name: Parse Port Payload
         id: vars
         run: |
           echo "REPO_NAME=${{ fromJson(github.event.inputs.port_payload).entity.title }}" >> $GITHUB_ENV
-          echo "RUN_ID=${{ fromJson(github.event.inputs.port_payload).run.id }}" >> $GITHUB_ENV
 
-      # 2. AUTOMATICALLY ENABLE GITHUB PAGES VIA API
-      # 2. AUTOMATICALLY ENABLE GITHUB PAGES VIA API
       - name: Enable GitHub Pages via API
         run: |
-          # This first call checks if Pages is already enabled
-          # The second call (POST) enables it if the first one fails
-          curl -L \
-            -X POST \
+          curl -L -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
             https://api.github.com/repos/Meghana-shetty/${{ env.REPO_NAME }}/pages \
-            -d '{"source":{"branch":"main","path":"/"}}' || echo "Pages might already be active"
-          
-          # Give GitHub 5 seconds to process the infrastructure change
+            -d '{"source":{"branch":"main","path":"/"}}' || echo "Pages already active"
           sleep 5
-          
-      # 3. Checkout the target repo code
+
       - name: Checkout Target Repository
         uses: actions/checkout@v4
         with:
           repository: Meghana-shetty/${{ env.REPO_NAME }}
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
 
-      # 4. Upload and Deploy to Pages
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
@@ -56,15 +48,16 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v4
 
-      # 5. Final Report to Port
-      - name: Report Success
-        if: success()
+      # THIS IS THE CRITICAL FIX: Report back no matter what
+      - name: Report Final Status to Port
+        if: always() 
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: PATCH_RUN
-          runId: ${{ env.RUN_ID }}
-          status: "SUCCESS"
+          runId: ${{ fromJson(github.event.inputs.port_payload).run.id }}
+          # Automatically detects if the job passed or failed
+          status: "${{ job.status == 'success' && 'SUCCESS' || 'FAILURE' }}"
           link: "https://Meghana-shetty.github.io/${{ env.REPO_NAME }}/"
-          logMessage: "Infrastructure configured and site live at https://Meghana-shetty.github.io/${{ env.REPO_NAME }}/ ✅"
+          logMessage: "Deployment for ${{ env.REPO_NAME }} finished with status: ${{ job.status }}! ✅"
