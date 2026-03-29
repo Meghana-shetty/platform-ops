@@ -64,7 +64,7 @@ jobs:
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: PATCH_ENTITY
+          operation: UPSERT  # <--- Changed from PATCH_ENTITY to UPSERT
           identifier: ${{ github.event.inputs.repository_full_name }}
           blueprint: service
           properties: |
@@ -78,6 +78,6 @@ jobs:
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: PATCH_RUN
+          operation: PATCH_RUN # This one is usually correct, but if it fails, try 'UPSERT' here too
           runId: ${{ github.event.inputs.port_run_id }}
           logMessage: "Build complete! Image available at GHCR."
