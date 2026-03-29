@@ -19,6 +19,19 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Debug Inputs
+        run: |
+          echo "Repo Name Received: ${{ github.event.inputs.repository_full_name }}"
+          echo "Image Name Received: ${{ github.event.inputs.image_name }}"
+          echo "Run ID Received: ${{ github.event.inputs.port_run_id }}"
+
+      - name: Checkout Target Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.repository_full_name }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+          
       - name: Checkout Target Repo
         uses: actions/checkout@v4
         with:
