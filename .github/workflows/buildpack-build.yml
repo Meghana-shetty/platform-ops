@@ -73,6 +73,19 @@ jobs:
               "build_strategy": "Cloud Native Buildpack"
             }
 
+
+      - name: Report Failure to Port
+        if: failure() # This only runs if any previous step fails
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ github.event.inputs.port_run_id }}
+          status: "FAILURE"
+          logMessage: "The build failed. Check GitHub Action logs for details."
+          
+
       - name: Complete Port Run
         uses: port-labs/port-github-action@v1
         with:
