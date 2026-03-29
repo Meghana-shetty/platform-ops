@@ -1,0 +1,39 @@
+name: Buildpack Build (No Dockerfile)
+on:
+  workflow_dispatch:
+    inputs:
+      repository_full_name:
+        description: 'The repo to build (e.g., username/repo-name)'
+        required: true
+      image_name:
+        description: 'The name for the resulting image'
+        required: true
+      port_run_id:
+        description: 'The Port Run ID for status updates'
+        required: true
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Target Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.repository_full_name }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+      - name: Install Pack CLI
+        uses: buildpacks/github-actions/setup-pack@v2
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build with Paketo Buildpacks
+        run: |
+          pack build ghcr.io/${{ github.repository_owner }}/${{ github.event.inputs.image_name }}:latest \
+            --builder paketobuildpacks/builder:base \
+            --publish
