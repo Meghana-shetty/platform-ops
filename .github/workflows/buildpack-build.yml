@@ -15,6 +15,9 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    permissions: # Required to push to GHCR
+      contents: read
+      packages: write
     steps:
       - name: Checkout Target Repo
         uses: actions/checkout@v4
@@ -34,6 +37,31 @@ jobs:
 
       - name: Build with Paketo Buildpacks
         run: |
-          pack build ghcr.io/${{ github.repository_owner }}/${{ github.event.inputs.image_name }}:latest \
+          # We use lowercase to ensure GHCR doesn't reject the image name
+          IMAGE_URL="ghcr.io/${{ github.repository_owner }}/${{ github.event.inputs.image_name }}"
+          pack build ${IMAGE_URL,,}:latest \
             --builder paketobuildpacks/builder:base \
             --publish
+
+      - name: Update Port Entity
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_ENTITY
+          identifier: ${{ github.event.inputs.repository_full_name }}
+          blueprint: service
+          properties: |
+            {
+              "container_image": "ghcr.io/${{ github.repository_owner }}/${{ github.event.inputs.image_name }}:latest",
+              "build_strategy": "Cloud Native Buildpack"
+            }
+
+      - name: Complete Port Run
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ github.event.inputs.port_run_id }}
+          logMessage: "Build complete! Image available at GHCR."
