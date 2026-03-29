@@ -78,6 +78,7 @@ jobs:
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: PATCH_RUN # This one is usually correct, but if it fails, try 'UPSERT' here too
+          operation: PATCH_RUN
           runId: ${{ github.event.inputs.port_run_id }}
+          status: "SUCCESS"  # <--- THIS IS THE KEY
           logMessage: "Build complete! Image available at GHCR."
