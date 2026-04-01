@@ -54,10 +54,12 @@ jobs:
           IMAGE_URL="ghcr.io/${{ github.repository_owner }}/${{ github.event.inputs.image_name }}"
           LOWER_URL=$(echo "$IMAGE_URL" | tr '[:upper:]' '[:lower:]')
           
-          # We change 'base' to 'full' here
           pack build "$LOWER_URL:latest" \
             --builder paketobuildpacks/builder:full \
+            --env "BP_WEB_SERVER=nginx" \
+            --clear-cache \
             --publish
+            
 
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
