@@ -59,15 +59,16 @@ jobs:
             --env "BP_WEB_SERVER=nginx" \
             --clear-cache \
             --publish
-            
+
 
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: UPSERT  # <--- Changed from PATCH_ENTITY to UPSERT
-          identifier: ${{ github.event.inputs.repository_full_name }}
+          operation: UPSERT
+          # CHANGE THIS LINE:
+          identifier: ${{ github.event.repository.name }} 
           blueprint: service
           properties: |
             {
