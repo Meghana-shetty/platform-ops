@@ -59,32 +59,58 @@ jobs:
           echo "Fetching valid Owner IDs for this API Key..."
           curl -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" https://api.render.com/v1/owners
 
+
       - name: Smart Deploy to Render
         id: deploy_render
         run: |
           CLEAN_NAME="${{ steps.casing.outputs.IMAGE }}"
           
-          # 1. CREATE SERVICE (Ensuring ownerId is exactly where Render wants it)
-          RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
-            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "ownerId": "${{ secrets.RENDER_OWNER_ID }}",
-              "type": "web_service",
-              "name": "'$CLEAN_NAME'",
-              "repo": "", 
-              "autoDeploy": "no",
-              "serviceDetails": {
-                "env": "docker",
-                "plan": "free"
-              },
-              "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
-            }')
+          # 1. Search for existing service by name
+          LIST_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services?name=$CLEAN_NAME")
           
-          echo "RENDER_RESPONSE: $RESPONSE"
-          
-          FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // empty')
-          
+          # Extract the ID if it exists
+          SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].id // empty')
+
+          if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
+            echo "Service not found. Creating NEW service..."
+            
+            # 2. CREATE SERVICE (using the tea- ownerId)
+            RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "ownerId": "tea-d76lgun5r7bs73c9d99g",
+                "type": "web_service",
+                "name": "'$CLEAN_NAME'",
+                "serviceDetails": {
+                  "env": "docker",
+                  "plan": "free"
+                },
+                "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+              }')
+            
+            echo "RENDER_RESPONSE: $RESPONSE"
+            FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // empty')
+          else
+            echo "Service exists (ID: $SERVICE_ID). Triggering Update..."
+            
+            # 3. UPDATE SERVICE (PATCH existing ID)
+            UPDATE_RESPONSE=$(curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+              }')
+            
+            # Trigger the actual deploy of the new image
+            curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
+            
+            FINAL_URL="https://$CLEAN_NAME.onrender.com"
+          fi
+
+          # Fallback if URL extraction fails
           if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
              FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
@@ -92,7 +118,6 @@ jobs:
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
           
-
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
         with:
