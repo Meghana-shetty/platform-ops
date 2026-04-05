@@ -56,35 +56,31 @@ jobs:
             --publish
           
           echo "IMAGE_PATH=$IMAGE_URL" >> $GITHUB_OUTPUT
-
-      - name: Deploy to Render via API
+        
+      - name: Deploy to Render
         id: deploy_render
         run: |
-          # Clean name for Render URL (lowercase, dashes instead of underscores)
-          CLEAN_NAME=$(echo "${{ steps.vars.outputs.IMAGE_LC }}" | tr '_' '-' | tr '.' '-')
+          # We use the IMAGE_LC (netflix112) as the name
+          CLEAN_NAME="${{ steps.vars.outputs.IMAGE_LC }}"
           
-          SERVICE_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            "https://api.render.com/v1/services?name=$CLEAN_NAME" | jq -r '.[0].id')
-
-          if [ "$SERVICE_ID" == "null" ] || [ -z "$SERVICE_ID" ]; then
-            curl -s -X POST "https://api.render.com/v1/services" \
-              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-              -H "Content-Type: application/json" \
-              -d '{
-                "type": "web_service",
-                "name": "'$CLEAN_NAME'",
-                "ownerId": "${{ secrets.RENDER_OWNER_ID }}",
-                "serviceDetails": {
-                  "env": "docker",
-                  "plan": "free"
-                },
-                "imagePath": "${{ steps.build_step.outputs.IMAGE_PATH }}:latest"
-              }'
-          else
-            curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
-              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
-          fi
-          echo "URL=https://$CLEAN_NAME.onrender.com" >> $GITHUB_OUTPUT
+          # Force the URL to be what we want
+          RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "type": "web_service",
+              "name": "'$CLEAN_NAME'",
+              "ownerId": "${{ secrets.RENDER_OWNER_ID }}",
+              "serviceDetails": {
+                "env": "docker",
+                "plan": "free"
+              },
+              "imagePath": "${{ steps.build_step.outputs.IMAGE_PATH }}:latest"
+            }')
+          
+          # Extract the REAL URL Render assigned (just in case they added -latest)
+          REAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // "https://'$CLEAN_NAME'.onrender.com"')
+          echo "FINAL_URL=$REAL_URL" >> $GITHUB_OUTPUT
 
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
@@ -92,15 +88,16 @@ jobs:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: UPSERT
-          identifier: ${{ github.event.inputs.repository_full_name }}
+          # Use the image name as the identifier so it matches your catalog
+          identifier: ${{ steps.vars.outputs.IMAGE_LC }} 
           blueprint: service
           properties: |
             {
-              "container_image": "${{ steps.build_step.outputs.IMAGE_PATH }}:latest",
-              "live_url": "${{ steps.deploy_render.outputs.URL }}",
-              "build_strategy": "Cloud Native Buildpack"
+              "live_url": "${{ steps.deploy_render.outputs.FINAL_URL }}",
+              "container_image": "${{ steps.build_step.outputs.IMAGE_PATH }}:latest"
             }
 
+            
       - name: Complete Port Run
         if: success()
         uses: port-labs/port-github-action@v1
