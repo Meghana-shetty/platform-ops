@@ -75,7 +75,7 @@ jobs:
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
             echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE SERVICE (The exact schema for Image Runtime)
+            # 2. CREATE SERVICE (The strict 'image' object schema)
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -86,7 +86,9 @@ jobs:
                 "serviceDetails": {
                   "env": "image",
                   "plan": "free",
-                  "image": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+                  "image": {
+                    "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+                  }
                 }
               }')
             
@@ -101,7 +103,9 @@ jobs:
               -H "Content-Type: application/json" \
               -d '{
                 "serviceDetails": {
-                  "image": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+                  "image": {
+                    "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+                  }
                 }
               }')
             
@@ -119,7 +123,7 @@ jobs:
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
 
-          
+    
               
           
       - name: Update Port Entity
