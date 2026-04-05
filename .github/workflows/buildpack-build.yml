@@ -39,19 +39,21 @@ jobs:
       - name: Setup Lowercase Variables
         id: vars
         run: |
-          # This handles the "Meghana" casing once and for all
+          # Fixes the "Meghana" uppercase error for the Registry
           echo "OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+          # Standardizes the image name for Render and Port
           echo "IMAGE_LC=$(echo "${{ github.event.inputs.image_name }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Build with Paketo
         id: build_step
         run: |
-          # Use the lowercase variables from the previous step
           IMAGE_URL="ghcr.io/${{ steps.vars.outputs.OWNER_LC }}/${{ steps.vars.outputs.IMAGE_LC }}"
           
+          # We force 8080 so we don't have to guess if it is 3000 or 5000
           pack build "$IMAGE_URL:latest" \
             --builder paketobuildpacks/builder:full \
             --env "BP_WEB_SERVER=nginx" \
+            --env "PORT=8080" \
             --clear-cache \
             --publish
           
@@ -60,10 +62,9 @@ jobs:
       - name: Deploy to Render
         id: deploy_render
         run: |
-          # We use the IMAGE_LC (netflix112) as the name
           CLEAN_NAME="${{ steps.vars.outputs.IMAGE_LC }}"
           
-          # Force the URL to be what we want
+          # Create the service on Render via API
           RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
             -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             -H "Content-Type: application/json" \
@@ -73,14 +74,15 @@ jobs:
               "ownerId": "${{ secrets.RENDER_OWNER_ID }}",
               "serviceDetails": {
                 "env": "docker",
-                "plan": "free"
+                "plan": "free",
+                "envVars": [{"key": "PORT", "value": "8080"}]
               },
               "imagePath": "${{ steps.build_step.outputs.IMAGE_PATH }}:latest"
             }')
           
-          # Extract the REAL URL Render assigned (just in case they added -latest)
-          REAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // "https://'$CLEAN_NAME'.onrender.com"')
-          echo "FINAL_URL=$REAL_URL" >> $GITHUB_OUTPUT
+          # Extract the URL Render actually assigned
+          FINAL_RENDER_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // "https://'$CLEAN_NAME'.onrender.com"')
+          echo "FINAL_URL=$FINAL_RENDER_URL" >> $GITHUB_OUTPUT
 
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
@@ -88,7 +90,7 @@ jobs:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: UPSERT
-          # Use the image name as the identifier so it matches your catalog
+          # CRITICAL: This must match the Identifier of the service in your Port Catalog
           identifier: ${{ steps.vars.outputs.IMAGE_LC }} 
           blueprint: service
           properties: |
@@ -97,7 +99,6 @@ jobs:
               "container_image": "${{ steps.build_step.outputs.IMAGE_PATH }}:latest"
             }
 
-            
       - name: Complete Port Run
         if: success()
         uses: port-labs/port-github-action@v1
@@ -107,7 +108,7 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ github.event.inputs.port_run_id }}
           status: "SUCCESS"
-          logMessage: "Successfully deployed to Render: ${{ steps.deploy_render.outputs.URL }}"
+          logMessage: "Deployed successfully! URL: ${{ steps.deploy_render.outputs.FINAL_URL }}"
 
       - name: Report Failure
         if: failure()
@@ -118,6 +119,4 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ github.event.inputs.port_run_id }}
           status: "FAILURE"
-
-
-
+          logMessage: "The build or deployment failed. Check GitHub Action logs."
