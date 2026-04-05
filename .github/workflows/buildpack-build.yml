@@ -125,24 +125,39 @@ jobs:
           fi
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
-                   
-                                                  
+
+
+      - name: Extract Repo Name
+        id: repo_name
+        run: echo "NAME=$(echo ${{ github.event.inputs.repository_full_name }} | cut -d'/' -f2)" >> $GITHUB_OUTPUT
+
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: UPSERT
-          # Change this to match your Port Catalog (either IMAGE_LC or FULL_REPO)
-          identifier: ${{ steps.casing.outputs.IMAGE }}
+          identifier: ${{ steps.repo_name.outputs.NAME }} # Uses the cleaned name
           blueprint: service
           properties: |
             {
               "live_url": "${{ steps.deploy_render.outputs.FINAL_URL }}",
-              "container_image": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest",
+              "container_image": "ghcr.io/${{ github.repository_owner }}/${{ github.event.inputs.image_name }}:latest",
               "build_strategy": "Cloud Native Buildpack"
             }
 
+      - name: Report Failure to Port
+        if: failure() # This only runs if any previous step fails
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ github.event.inputs.port_run_id }}
+          status: "FAILURE"
+          logMessage: "The build failed. Check GitHub Action logs for details."
+
+                                                  
       - name: Complete Port Run
         if: success()
         uses: port-labs/port-github-action@v1
