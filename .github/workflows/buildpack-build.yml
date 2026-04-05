@@ -36,14 +36,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Setup Lowercase Variables
+        id: vars
+        run: |
+          # This handles the "Meghana" casing once and for all
+          echo "OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+          echo "IMAGE_LC=$(echo "${{ github.event.inputs.image_name }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Build with Paketo
         id: build_step
         run: |
-          # Create lowercase image URL
-          LOWER_IMAGE=$(echo "${{ github.event.inputs.image_name }}" | tr '[:upper:]' '[:lower:]')
-          IMAGE_URL="ghcr.io/${{ github.repository_owner }}/$LOWER_IMAGE"
+          # Use the lowercase variables from the previous step
+          IMAGE_URL="ghcr.io/${{ steps.vars.outputs.OWNER_LC }}/${{ steps.vars.outputs.IMAGE_LC }}"
           
-          # Build the image - will look for 'public' folder by default
           pack build "$IMAGE_URL:latest" \
             --builder paketobuildpacks/builder:full \
             --env "BP_WEB_SERVER=nginx" \
@@ -55,16 +60,13 @@ jobs:
       - name: Deploy to Render via API
         id: deploy_render
         run: |
-          # Clean name for Render (lowercase, no underscores)
-          CLEAN_NAME=$(echo "${{ github.event.inputs.image_name }}" | tr '[:upper:]' '[:lower:]' | tr '_' '-' | tr '.' '-')
+          # Clean name for Render URL (lowercase, dashes instead of underscores)
+          CLEAN_NAME=$(echo "${{ steps.vars.outputs.IMAGE_LC }}" | tr '_' '-' | tr '.' '-')
           
-          # 1. Check if service exists
           SERVICE_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             "https://api.render.com/v1/services?name=$CLEAN_NAME" | jq -r '.[0].id')
 
           if [ "$SERVICE_ID" == "null" ] || [ -z "$SERVICE_ID" ]; then
-            echo "Creating New Service..."
-            # 2. Create service if it doesn't exist
             curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -79,8 +81,6 @@ jobs:
                 "imagePath": "${{ steps.build_step.outputs.IMAGE_PATH }}:latest"
               }'
           else
-            echo "Updating Service..."
-            # 3. Trigger deploy if it already exists
             curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
           fi
@@ -110,7 +110,7 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ github.event.inputs.port_run_id }}
           status: "SUCCESS"
-          logMessage: "Deployed to: ${{ steps.deploy_render.outputs.URL }}"
+          logMessage: "Successfully deployed to Render: ${{ steps.deploy_render.outputs.URL }}"
 
       - name: Report Failure
         if: failure()
@@ -121,8 +121,6 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ github.event.inputs.port_run_id }}
           status: "FAILURE"
-
-          
 
 
 
