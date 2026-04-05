@@ -60,6 +60,7 @@ jobs:
           curl -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" https://api.render.com/v1/owners
 
 
+
       - name: Smart Deploy to Render
         id: deploy_render
         run: |
@@ -74,8 +75,8 @@ jobs:
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
             echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE SERVICE (The "Universal" Schema)
-            # We put imagePath at the top level and set env to image.
+            # 2. CREATE SERVICE
+            # NOTICE: We use "image" (not imagePath) at the TOP LEVEL
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -83,7 +84,7 @@ jobs:
                 "ownerId": "tea-d76lgun5r7bs73c9d99g",
                 "type": "web_service",
                 "name": "'$CLEAN_NAME'",
-                "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest",
+                "image": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest",
                 "serviceDetails": {
                   "env": "image",
                   "plan": "free"
@@ -96,14 +97,14 @@ jobs:
             echo "Service exists ($SERVICE_ID). Updating..."
             
             # 3. UPDATE SERVICE
+            # PATCH also uses "image" at top level for the image runtime
             UPDATE_RESPONSE=$(curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
               -d '{
-                "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+                "image": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
               }')
             
-            # Trigger the deploy
             curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
             
@@ -116,7 +117,9 @@ jobs:
           fi
 
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
-      
+
+
+          
           
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
