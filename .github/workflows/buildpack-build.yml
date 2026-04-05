@@ -65,7 +65,7 @@ jobs:
         run: |
           CLEAN_NAME="${{ steps.casing.outputs.IMAGE }}:latest"
           FULL_IMAGE="${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
-          OWNER_ID= "${{ secrets.RENDER_OWNER_ID }}"
+          OWNER_ID="${{ secrets.RENDER_OWNER_ID }}"
           #"tea-d76lgun5r7bs73c9d99g"
           
           # 1. Search for existing service by name
