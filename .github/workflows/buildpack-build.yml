@@ -60,11 +60,10 @@ jobs:
           curl -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" https://api.render.com/v1/owners
 
 
-
       - name: Smart Deploy to Render
         id: deploy_render
         run: |
-          # 1. Capture variables to avoid JSON string breaks
+          # 1. Capture variables
           CLEAN_NAME="${{ steps.casing.outputs.IMAGE }}"
           FULL_IMAGE="${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
           
@@ -79,8 +78,7 @@ jobs:
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
             echo "Service not found. Creating NEW service..."
             
-            # 3. CREATE SERVICE (The 'Existing Image' logic)
-            # We use imagePath inside serviceDetails for a clean POST
+            # 3. CREATE SERVICE (Strict 'image' object for POST)
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -88,10 +86,12 @@ jobs:
                 \"ownerId\": \"tea-d76lgun5r7bs73c9d99g\",
                 \"type\": \"web_service\",
                 \"name\": \"$CLEAN_NAME\",
-                \"imagePath\": \"$FULL_IMAGE\",
                 \"serviceDetails\": {
                   \"env\": \"image\",
-                  \"plan\": \"free\"
+                  \"plan\": \"free\",
+                  \"image\": {
+                    \"imagePath\": \"$FULL_IMAGE\"
+                  }
                 }
               }")
             
@@ -100,12 +100,12 @@ jobs:
           else
             echo "Service exists ($SERVICE_ID). Updating image..."
             
-            # 4. UPDATE SERVICE
+            # 4. UPDATE SERVICE (Flat 'imagePath' for PATCH)
             UPDATE_RESPONSE=$(curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
               -d "{
-                \"imagePath\": \"$FULL_IMAGE\"
+                \"url\": \"$FULL_IMAGE\"
               }")
             
             echo "UPDATE_RESPONSE: $UPDATE_RESPONSE"
