@@ -73,9 +73,10 @@ jobs:
           SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].id // empty')
 
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
-            echo "Service not found. Creating NEW service using Docker Runtime..."
+            echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE SERVICE (Standard Docker Schema)
+            # 2. CREATE SERVICE
+            # Key fix: Use "image" at the root, and "image" as the env.
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -83,11 +84,10 @@ jobs:
                 \"ownerId\": \"tea-d76lgun5r7bs73c9d99g\",
                 \"type\": \"web_service\",
                 \"name\": \"$CLEAN_NAME\",
-                \"imagePath\": \"$FULL_IMAGE\",
+                \"image\": \"$FULL_IMAGE\",
                 \"serviceDetails\": {
-                  \"env\": \"docker\",
-                  \"plan\": \"free\",
-                  \"region\": \"oregon\"
+                  \"env\": \"image\",
+                  \"plan\": \"free\"
                 }
               }")
             
@@ -97,14 +97,14 @@ jobs:
             echo "Service exists ($SERVICE_ID). Updating..."
             
             # 3. UPDATE SERVICE
+            # Patching an existing image-based service
             UPDATE_RESPONSE=$(curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
               -d "{
-                \"imagePath\": \"$FULL_IMAGE\"
+                \"image\": \"$FULL_IMAGE\"
               }")
             
-            # Trigger the deploy
             curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
             
@@ -117,8 +117,7 @@ jobs:
 
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
-          
-                    
+                               
           
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
