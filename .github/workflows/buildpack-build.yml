@@ -68,17 +68,17 @@ jobs:
           FULL_IMAGE="${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
           OWNER_ID="tea-d76lgun5r7bs73c9d99g"
           
-          # 1. Check if service exists
+          # 1. Search for existing service
           LIST_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             "https://api.render.com/v1/services?name=$CLEAN_NAME")
           
           SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].id // empty')
 
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
-            echo "Service not found. Creating NEW service with the 'Image Runtime' nested schema..."
+            echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE SERVICE (The ONLY schema that satisfies "image is required")
-            # For POST, Render wants the image inside 'image' -> 'imagePath'
+            # 2. THE FIX: Render expects 'imagePath' at the ROOT level 
+            # for the initial POST when 'env' is 'image'.
             PAYLOAD=$(jq -n \
               --arg name "$CLEAN_NAME" \
               --arg owner "$OWNER_ID" \
@@ -87,12 +87,10 @@ jobs:
                 ownerId: $owner,
                 type: "web_service",
                 name: $name,
+                imagePath: $img,
                 serviceDetails: {
                   env: "image",
-                  plan: "free",
-                  image: {
-                    imagePath: $img
-                  }
+                  plan: "free"
                 }
               }')
 
@@ -106,7 +104,7 @@ jobs:
           else
             echo "Service exists ($SERVICE_ID). Updating..."
             
-            # 3. UPDATE SERVICE (For PATCH, Render wants a flat imagePath)
+            # 3. UPDATE SERVICE
             UPDATE_PAYLOAD=$(jq -n --arg img "$FULL_IMAGE" '{imagePath: $img}')
 
             curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
@@ -127,6 +125,7 @@ jobs:
 
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
           
+                
                                              
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
