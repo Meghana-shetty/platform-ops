@@ -60,15 +60,13 @@ jobs:
           curl -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" https://api.render.com/v1/owners
 
 
-      - name: Smart Deploy to Render (Debug Mode)
+      - name: Smart Deploy to Render
         id: deploy_render
         run: |
           CLEAN_NAME="${{ steps.casing.outputs.IMAGE }}"
           FULL_IMAGE="${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
           OWNER_ID="tea-d76lgun5r7bs73c9d99g"
           
-          echo "DEBUG: Checking for service: $CLEAN_NAME"
-
           # 1. Search for existing service
           LIST_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             "https://api.render.com/v1/services?name=$CLEAN_NAME")
@@ -76,9 +74,9 @@ jobs:
           SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].id // empty')
 
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
-            echo "DEBUG: Service not found. Building Create Payload..."
+            echo "Service not found. Creating NEW service with nested image object..."
             
-            # 2. Build and Print the Payload for visibility
+            # 2. THE SCHEMA FIX: Use 'image' object with 'url'
             jq -n \
               --arg name "$CLEAN_NAME" \
               --arg owner "$OWNER_ID" \
@@ -87,54 +85,46 @@ jobs:
                 ownerId: $owner,
                 type: "web_service",
                 name: $name,
-                imagePath: $img,
                 serviceDetails: {
                   env: "image",
-                  plan: "free"
+                  plan: "free",
+                  image: {
+                    url: $img
+                  }
                 }
               }' > render_payload.json
 
-            echo "--- START OF JSON PAYLOAD ---"
-            cat render_payload.json
-            echo "--- END OF JSON PAYLOAD ---"
-
-            # 3. Execute with Verbose Output (-v) to see headers
-            echo "DEBUG: Sending POST to Render API..."
-            RESPONSE=$(curl -v -X POST "https://api.render.com/v1/services" \
+            RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
-              -d @render_payload.json 2>&1)
+              -d @render_payload.json)
             
-            echo "--- FULL API VERBOSE LOG ---"
-            echo "$RESPONSE"
-            echo "--- END OF API LOG ---"
-
-            FINAL_URL=$(echo "$RESPONSE" | grep -oP '"url":"\K[^"]+' | head -1)
+            echo "RENDER_RESPONSE: $RESPONSE"
+            FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // empty')
           else
-            echo "DEBUG: Service exists ($SERVICE_ID). Building Update Payload..."
+            echo "Service exists ($SERVICE_ID). Updating..."
             
+            # 3. UPDATE SERVICE
+            # Updates use the flat 'imagePath' key
             jq -n --arg img "$FULL_IMAGE" '{imagePath: $img}' > update_payload.json
-            
-            RESPONSE=$(curl -v -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
+
+            curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
-              -d @update_payload.json 2>&1)
+              -d @update_payload.json
             
-            echo "$RESPONSE"
-            
-            # Trigger Deploy
             curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
             
             FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
 
-          # Output to GitHub Actions
-          if [ -z "$FINAL_URL" ]; then FINAL_URL="https://$CLEAN_NAME.onrender.com"; fi
+          if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
+             FINAL_URL="https://$CLEAN_NAME.onrender.com"
+          fi
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
-          
 
-         
+                   
                                                   
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
