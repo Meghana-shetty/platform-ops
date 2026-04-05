@@ -39,17 +39,14 @@ jobs:
       - name: Standardize Casing (The Meghana Fix)
         id: casing
         run: |
-          # Force the owner and image name to be lowercase
           LOWER_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           LOWER_IMAGE=$(echo "${{ github.event.inputs.image_name }}" | tr '[:upper:]' '[:lower:]')
-          
           echo "OWNER=$LOWER_OWNER" >> $GITHUB_OUTPUT
           echo "IMAGE=$LOWER_IMAGE" >> $GITHUB_OUTPUT
           echo "FULL_IMAGE_URL=ghcr.io/$LOWER_OWNER/$LOWER_IMAGE" >> $GITHUB_OUTPUT
 
       - name: Build with Paketo
         run: |
-          # Use the lowercase variables from the previous step
           pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
             --builder paketobuildpacks/builder:full \
             --env "BP_WEB_SERVER=nginx" \
@@ -57,22 +54,21 @@ jobs:
             --env "PORT=8080" \
             --publish
 
-
-
-      - name: Smart Deploy to Render (Create or Update)
+      - name: Smart Deploy to Render
         id: deploy_render
         run: |
           CLEAN_NAME="${{ steps.casing.outputs.IMAGE }}"
           
-          # 1. Check if a service with this name already exists
-          # We search for the service ID using the name
-          SERVICE_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            "https://api.render.com/v1/services?name=$CLEAN_NAME" | jq -r '.[0].id')
+          # 1. Search for existing service
+          LIST_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services?name=$CLEAN_NAME")
+          
+          SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].id // empty')
 
-          if [ "$SERVICE_ID" == "null" ] || [ -z "$SERVICE_ID" ]; then
-            echo "Service not found. Creating a NEW service..."
+          if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
+            echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE (POST) if it doesn't exist
+            # 2. CREATE SERVICE
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -82,36 +78,40 @@ jobs:
                 "ownerId": "${{ secrets.RENDER_OWNER_ID }}",
                 "serviceDetails": {
                   "env": "docker",
-                  "plan": "free",
-                  "envVars": [{"key": "PORT", "value": "8080"}]
+                  "plan": "free"
                 },
                 "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
               }')
             
-            # Extract the URL from the create response
-            FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // "https://'$CLEAN_NAME'.onrender.com"')
-          else
-            echo "Service exists with ID: $SERVICE_ID. Triggering an UPDATE..."
+            # CRITICAL DEBUG LINE:
+            echo "RENDER_RESPONSE: $RESPONSE"
             
-            # 3. UPDATE (PATCH) if it exists
-            # We update the image path to the latest build and trigger a redeploy
-            curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
+            FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // empty')
+          else
+            echo "Service exists ($SERVICE_ID). Updating..."
+            
+            # 3. UPDATE SERVICE
+            UPDATE_RESPONSE=$(curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
               -d '{
                 "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
-              }'
+              }')
             
-            # Trigger the actual deployment of that new image
+            echo "RENDER_UPDATE_RESPONSE: $UPDATE_RESPONSE"
+            
             curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
             
             FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
 
-          echo "URL=$FINAL_URL" >> $GITHUB_OUTPUT
+          # Fallback if URL extraction fails
+          if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
+             FINAL_URL="https://$CLEAN_NAME.onrender.com"
+          fi
 
-          
+          echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
@@ -119,13 +119,13 @@ jobs:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: UPSERT
-          # IMPORTANT: This matches the ID of the entity in Port
-          identifier: ${{ github.event.inputs.repository_full_name }}
+          # Change this to match your Port Catalog (either IMAGE_LC or FULL_REPO)
+          identifier: ${{ steps.casing.outputs.IMAGE }}
           blueprint: service
           properties: |
             {
+              "live_url": "${{ steps.deploy_render.outputs.FINAL_URL }}",
               "container_image": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest",
-              "live_url": "${{ steps.deploy_render.outputs.URL }}",
               "build_strategy": "Cloud Native Buildpack"
             }
 
@@ -138,17 +138,8 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ github.event.inputs.port_run_id }}
           status: "SUCCESS"
-          logMessage: "Build complete! Deployed to: ${{ steps.deploy_render.outputs.URL }}"
+          logMessage: "Successfully deployed to Render: ${{ steps.deploy_render.outputs.FINAL_URL }}"
 
-      - name: Report Failure
-        if: failure()
-        uses: port-labs/port-github-action@v1
-        with:
-          clientId: ${{ secrets.PORT_CLIENT_ID }}
-          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: PATCH_RUN
-          runId: ${{ github.event.inputs.port_run_id }}
-          status: "FAILURE"
 
 
 
