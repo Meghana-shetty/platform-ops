@@ -88,9 +88,11 @@ jobs:
                 \"ownerId\": \"tea-d76lgun5r7bs73c9d99g\",
                 \"type\": \"web_service\",
                 \"name\": \"$CLEAN_NAME\",
-                \"env\": \"docker\",
-                \"image\": { \"url\": \"$FULL_IMAGE\" },
-                \"plan\": \"free\"
+                \"serviceDetails\": {
+                \"env\": \"image\",
+                \"plan\": \"free\",
+                \"image\": { \"url\": \"$FULL_IMAGE\" }
+              }
                   }
                 ")
             
