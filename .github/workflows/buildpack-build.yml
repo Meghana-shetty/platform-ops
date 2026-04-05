@@ -75,10 +75,10 @@ jobs:
           SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].id // empty')
 
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
-            echo "Service not found. Creating NEW service..."
+            echo "Service not found. Creating NEW service with root 'image' key..."
             
-            # 2. THE FIX: Render expects 'imagePath' at the ROOT level 
-            # for the initial POST when 'env' is 'image'.
+            # 2. CREATE SERVICE (The most direct schema)
+            # We use "image" at the root level.
             PAYLOAD=$(jq -n \
               --arg name "$CLEAN_NAME" \
               --arg owner "$OWNER_ID" \
@@ -87,7 +87,7 @@ jobs:
                 ownerId: $owner,
                 type: "web_service",
                 name: $name,
-                imagePath: $img,
+                image: $img,
                 serviceDetails: {
                   env: "image",
                   plan: "free"
@@ -105,7 +105,7 @@ jobs:
             echo "Service exists ($SERVICE_ID). Updating..."
             
             # 3. UPDATE SERVICE
-            UPDATE_PAYLOAD=$(jq -n --arg img "$FULL_IMAGE" '{imagePath: $img}')
+            UPDATE_PAYLOAD=$(jq -n --arg img "$FULL_IMAGE" '{image: $img}')
 
             curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
@@ -124,8 +124,7 @@ jobs:
           fi
 
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
-          
-                
+                            
                                              
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
