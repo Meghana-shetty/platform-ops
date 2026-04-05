@@ -64,9 +64,13 @@ jobs:
       - name: Smart Deploy to Render
         id: deploy_render
         run: |
+          # 1. Capture variables to avoid JSON string breaks
           CLEAN_NAME="${{ steps.casing.outputs.IMAGE }}"
+          FULL_IMAGE="${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
           
-          # 1. Search for existing service
+          echo "Checking for existing service: $CLEAN_NAME"
+
+          # 2. Search for existing service
           LIST_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             "https://api.render.com/v1/services?name=$CLEAN_NAME")
           
@@ -75,36 +79,38 @@ jobs:
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
             echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE SERVICE
-            # NOTICE: We use "image" (not imagePath) at the TOP LEVEL
+            # 3. CREATE SERVICE (The 'Existing Image' logic)
+            # We use imagePath inside serviceDetails for a clean POST
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
-              -d '{
-                "ownerId": "tea-d76lgun5r7bs73c9d99g",
-                "type": "web_service",
-                "name": "'$CLEAN_NAME'",
-                "image": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest",
-                "serviceDetails": {
-                  "env": "image",
-                  "plan": "free"
+              -d "{
+                \"ownerId\": \"tea-d76lgun5r7bs73c9d99g\",
+                \"type\": \"web_service\",
+                \"name\": \"$CLEAN_NAME\",
+                \"imagePath\": \"$FULL_IMAGE\",
+                \"serviceDetails\": {
+                  \"env\": \"image\",
+                  \"plan\": \"free\"
                 }
-              }')
+              }")
             
             echo "RENDER_RESPONSE: $RESPONSE"
             FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // empty')
           else
-            echo "Service exists ($SERVICE_ID). Updating..."
+            echo "Service exists ($SERVICE_ID). Updating image..."
             
-            # 3. UPDATE SERVICE
-            # PATCH also uses "image" at top level for the image runtime
+            # 4. UPDATE SERVICE
             UPDATE_RESPONSE=$(curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
-              -d '{
-                "image": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
-              }')
+              -d "{
+                \"imagePath\": \"$FULL_IMAGE\"
+              }")
             
+            echo "UPDATE_RESPONSE: $UPDATE_RESPONSE"
+
+            # 5. TRIGGER DEPLOY
             curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
             
@@ -118,8 +124,8 @@ jobs:
 
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
-
           
+                
           
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
