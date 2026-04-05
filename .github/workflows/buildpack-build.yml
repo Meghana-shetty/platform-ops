@@ -87,7 +87,7 @@ jobs:
                 \"type\": \"web_service\",
                 \"name\": \"$CLEAN_NAME\",
                 \"serviceDetails\": {
-                  \"env\": \"image\",
+                  \"env\": \"docker\",
                   \"plan\": \"free\",
                   \"image\": {
                     \"url\": \"$FULL_IMAGE\"
