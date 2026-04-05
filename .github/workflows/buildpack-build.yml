@@ -60,8 +60,6 @@ jobs:
           curl -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" https://api.render.com/v1/owners
 
 
-
-
       - name: Smart Deploy to Render
         id: deploy_render
         run: |
@@ -76,7 +74,8 @@ jobs:
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
             echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE SERVICE (Removed 'repo' field to allow Image-only deploy)
+            # 2. CREATE SERVICE (The "Image-Only" configuration)
+            # We use type: "web_service" but omit the repo and set ownerId correctly
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -85,10 +84,10 @@ jobs:
                 "type": "web_service",
                 "name": "'$CLEAN_NAME'",
                 "serviceDetails": {
-                  "env": "docker",
-                  "plan": "free"
-                },
-                "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+                  "env": "image",
+                  "plan": "free",
+                  "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+                }
               }')
             
             echo "RENDER_RESPONSE: $RESPONSE"
@@ -116,7 +115,7 @@ jobs:
           fi
 
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
-
+   
 
           
           
