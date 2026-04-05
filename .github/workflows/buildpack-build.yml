@@ -1,4 +1,4 @@
-name: Buildpack Build (No Dockerfile)
+name: Buildpack Build & Deploy
 on:
   workflow_dispatch:
     inputs:
@@ -13,25 +13,12 @@ on:
         required: true
 
 jobs:
-  build-and-push:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    permissions: # Required to push to GHCR
+    permissions:
       contents: read
       packages: write
     steps:
-      - name: Debug Inputs
-        run: |
-          echo "Repo Name Received: ${{ github.event.inputs.repository_full_name }}"
-          echo "Image Name Received: ${{ github.event.inputs.image_name }}"
-          echo "Run ID Received: ${{ github.event.inputs.port_run_id }}"
-
-      - name: Checkout Target Repo
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event.inputs.repository_full_name }}
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-
-          
       - name: Checkout Target Repo
         uses: actions/checkout@v4
         with:
@@ -42,30 +29,62 @@ jobs:
         run: |
           (curl -sSL "https://github.com/buildpacks/pack/releases/download/v0.33.2/pack-v0.33.2-linux.tgz" | tar -C /usr/local/bin/ --no-same-owner -xzv pack)
 
-      - name: Log in to GitHub Container Registry (GHCR)
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build with Paketo Buildpacks
+      - name: Build with Paketo
+        id: build_step
         run: |
-          IMAGE_URL="ghcr.io/${{ github.repository_owner }}/${{ github.event.inputs.image_name }}"
-          LOWER_URL=$(echo "$IMAGE_URL" | tr '[:upper:]' '[:lower:]')
+          # Create lowercase image URL
+          LOWER_IMAGE=$(echo "${{ github.event.inputs.image_name }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_URL="ghcr.io/${{ github.repository_owner }}/$LOWER_IMAGE"
           
-          pack build "$LOWER_URL:latest" \
+          # Build the image - will look for 'public' folder by default
+          pack build "$IMAGE_URL:latest" \
             --builder paketobuildpacks/builder:full \
             --env "BP_WEB_SERVER=nginx" \
             --clear-cache \
             --publish
+          
+          echo "IMAGE_PATH=$IMAGE_URL" >> $GITHUB_OUTPUT
 
+      - name: Deploy to Render via API
+        id: deploy_render
+        run: |
+          # Clean name for Render (lowercase, no underscores)
+          CLEAN_NAME=$(echo "${{ github.event.inputs.image_name }}" | tr '[:upper:]' '[:lower:]' | tr '_' '-' | tr '.' '-')
+          
+          # 1. Check if service exists
+          SERVICE_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services?name=$CLEAN_NAME" | jq -r '.[0].id')
 
-
-
-      - name: Extract Repo Name
-        id: repo_name
-        run: echo "NAME=$(echo ${{ github.event.inputs.repository_full_name }} | cut -d'/' -f2)" >> $GITHUB_OUTPUT
+          if [ "$SERVICE_ID" == "null" ] || [ -z "$SERVICE_ID" ]; then
+            echo "Creating New Service..."
+            # 2. Create service if it doesn't exist
+            curl -s -X POST "https://api.render.com/v1/services" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "type": "web_service",
+                "name": "'$CLEAN_NAME'",
+                "ownerId": "${{ secrets.RENDER_OWNER_ID }}",
+                "serviceDetails": {
+                  "env": "docker",
+                  "plan": "free"
+                },
+                "imagePath": "${{ steps.build_step.outputs.IMAGE_PATH }}:latest"
+              }'
+          else
+            echo "Updating Service..."
+            # 3. Trigger deploy if it already exists
+            curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
+          fi
+          echo "URL=https://$CLEAN_NAME.onrender.com" >> $GITHUB_OUTPUT
 
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
@@ -73,16 +92,28 @@ jobs:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: UPSERT
-          identifier: ${{ steps.repo_name.outputs.NAME }} # Uses the cleaned name
+          identifier: ${{ github.event.inputs.repository_full_name }}
           blueprint: service
           properties: |
             {
-              "container_image": "ghcr.io/${{ github.repository_owner }}/${{ github.event.inputs.image_name }}:latest",
+              "container_image": "${{ steps.build_step.outputs.IMAGE_PATH }}:latest",
+              "live_url": "${{ steps.deploy_render.outputs.URL }}",
               "build_strategy": "Cloud Native Buildpack"
             }
 
-      - name: Report Failure to Port
-        if: failure() # This only runs if any previous step fails
+      - name: Complete Port Run
+        if: success()
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ github.event.inputs.port_run_id }}
+          status: "SUCCESS"
+          logMessage: "Deployed to: ${{ steps.deploy_render.outputs.URL }}"
+
+      - name: Report Failure
+        if: failure()
         uses: port-labs/port-github-action@v1
         with:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
@@ -90,15 +121,8 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ github.event.inputs.port_run_id }}
           status: "FAILURE"
-          logMessage: "The build failed. Check GitHub Action logs for details."
+
           
 
-      - name: Complete Port Run
-        uses: port-labs/port-github-action@v1
-        with:
-          clientId: ${{ secrets.PORT_CLIENT_ID }}
-          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
-          operation: PATCH_RUN
-          runId: ${{ github.event.inputs.port_run_id }}
-          status: "SUCCESS"  # <--- THIS IS THE KEY
-          logMessage: "Build complete! Image available at GHCR."
+
+
