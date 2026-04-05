@@ -36,53 +36,82 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Lowercase Variables
-        id: vars
+      - name: Standardize Casing (The Meghana Fix)
+        id: casing
         run: |
-          # Fixes the "Meghana" uppercase error for the Registry
-          echo "OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-          # Standardizes the image name for Render and Port
-          echo "IMAGE_LC=$(echo "${{ github.event.inputs.image_name }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+          # Force the owner and image name to be lowercase
+          LOWER_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          LOWER_IMAGE=$(echo "${{ github.event.inputs.image_name }}" | tr '[:upper:]' '[:lower:]')
+          
+          echo "OWNER=$LOWER_OWNER" >> $GITHUB_OUTPUT
+          echo "IMAGE=$LOWER_IMAGE" >> $GITHUB_OUTPUT
+          echo "FULL_IMAGE_URL=ghcr.io/$LOWER_OWNER/$LOWER_IMAGE" >> $GITHUB_OUTPUT
 
       - name: Build with Paketo
-        id: build_step
         run: |
-          IMAGE_URL="ghcr.io/${{ steps.vars.outputs.OWNER_LC }}/${{ steps.vars.outputs.IMAGE_LC }}"
-          
-          # We force 8080 so we don't have to guess if it is 3000 or 5000
-          pack build "$IMAGE_URL:latest" \
+          # Use the lowercase variables from the previous step
+          pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
             --builder paketobuildpacks/builder:full \
             --env "BP_WEB_SERVER=nginx" \
+            --env "BP_WEB_SERVER_ROOT=public" \
             --env "PORT=8080" \
-            --clear-cache \
             --publish
-          
-          echo "IMAGE_PATH=$IMAGE_URL" >> $GITHUB_OUTPUT
-        
-      - name: Deploy to Render
+
+
+
+      - name: Smart Deploy to Render (Create or Update)
         id: deploy_render
         run: |
-          CLEAN_NAME="${{ steps.vars.outputs.IMAGE_LC }}"
+          CLEAN_NAME="${{ steps.casing.outputs.IMAGE }}"
           
-          # Create the service on Render via API
-          RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
-            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "type": "web_service",
-              "name": "'$CLEAN_NAME'",
-              "ownerId": "${{ secrets.RENDER_OWNER_ID }}",
-              "serviceDetails": {
-                "env": "docker",
-                "plan": "free",
-                "envVars": [{"key": "PORT", "value": "8080"}]
-              },
-              "imagePath": "${{ steps.build_step.outputs.IMAGE_PATH }}:latest"
-            }')
+          # 1. Check if a service with this name already exists
+          # We search for the service ID using the name
+          SERVICE_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services?name=$CLEAN_NAME" | jq -r '.[0].id')
+
+          if [ "$SERVICE_ID" == "null" ] || [ -z "$SERVICE_ID" ]; then
+            echo "Service not found. Creating a NEW service..."
+            
+            # 2. CREATE (POST) if it doesn't exist
+            RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "type": "web_service",
+                "name": "'$CLEAN_NAME'",
+                "ownerId": "${{ secrets.RENDER_OWNER_ID }}",
+                "serviceDetails": {
+                  "env": "docker",
+                  "plan": "free",
+                  "envVars": [{"key": "PORT", "value": "8080"}]
+                },
+                "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+              }')
+            
+            # Extract the URL from the create response
+            FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // "https://'$CLEAN_NAME'.onrender.com"')
+          else
+            echo "Service exists with ID: $SERVICE_ID. Triggering an UPDATE..."
+            
+            # 3. UPDATE (PATCH) if it exists
+            # We update the image path to the latest build and trigger a redeploy
+            curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+              }'
+            
+            # Trigger the actual deployment of that new image
+            curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
+            
+            FINAL_URL="https://$CLEAN_NAME.onrender.com"
+          fi
+
+          echo "URL=$FINAL_URL" >> $GITHUB_OUTPUT
+
           
-          # Extract the URL Render actually assigned
-          FINAL_RENDER_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // "https://'$CLEAN_NAME'.onrender.com"')
-          echo "FINAL_URL=$FINAL_RENDER_URL" >> $GITHUB_OUTPUT
 
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
@@ -90,13 +119,14 @@ jobs:
           clientId: ${{ secrets.PORT_CLIENT_ID }}
           clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
           operation: UPSERT
-          # CRITICAL: This must match the Identifier of the service in your Port Catalog
-          identifier: ${{ steps.vars.outputs.IMAGE_LC }} 
+          # IMPORTANT: This matches the ID of the entity in Port
+          identifier: ${{ github.event.inputs.repository_full_name }}
           blueprint: service
           properties: |
             {
-              "live_url": "${{ steps.deploy_render.outputs.FINAL_URL }}",
-              "container_image": "${{ steps.build_step.outputs.IMAGE_PATH }}:latest"
+              "container_image": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest",
+              "live_url": "${{ steps.deploy_render.outputs.URL }}",
+              "build_strategy": "Cloud Native Buildpack"
             }
 
       - name: Complete Port Run
@@ -108,7 +138,7 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ github.event.inputs.port_run_id }}
           status: "SUCCESS"
-          logMessage: "Deployed successfully! URL: ${{ steps.deploy_render.outputs.FINAL_URL }}"
+          logMessage: "Build complete! Deployed to: ${{ steps.deploy_render.outputs.URL }}"
 
       - name: Report Failure
         if: failure()
@@ -119,4 +149,7 @@ jobs:
           operation: PATCH_RUN
           runId: ${{ github.event.inputs.port_run_id }}
           status: "FAILURE"
-          logMessage: "The build or deployment failed. Check GitHub Action logs."
+
+
+
+
