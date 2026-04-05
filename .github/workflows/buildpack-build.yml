@@ -54,7 +54,10 @@ jobs:
             --env "PORT=8080" \
             --publish
 
-
+      - name: Find My Real Render ID
+        run: |
+          echo "Fetching valid Owner IDs for this API Key..."
+          curl -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" https://api.render.com/v1/owners
 
       - name: Smart Deploy to Render
         id: deploy_render
