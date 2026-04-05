@@ -75,7 +75,8 @@ jobs:
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
             echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE SERVICE (The strict 'image' object schema)
+            # 2. CREATE SERVICE (Full Schema)
+            # Providing imagePath at root AND inside serviceDetails to satisfy the validator
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -83,12 +84,10 @@ jobs:
                 "ownerId": "tea-d76lgun5r7bs73c9d99g",
                 "type": "web_service",
                 "name": "'$CLEAN_NAME'",
+                "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest",
                 "serviceDetails": {
                   "env": "image",
-                  "plan": "free",
-                  "image": {
-                    "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
-                  }
+                  "plan": "free"
                 }
               }')
             
@@ -98,15 +97,12 @@ jobs:
             echo "Service exists ($SERVICE_ID). Updating..."
             
             # 3. UPDATE SERVICE
+            # For PATCH, Render usually prefers the object inside serviceDetails
             UPDATE_RESPONSE=$(curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
               -d '{
-                "serviceDetails": {
-                  "image": {
-                    "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
-                  }
-                }
+                "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
               }')
             
             curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
@@ -122,9 +118,9 @@ jobs:
 
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
+          
 
-    
-              
+      
           
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
