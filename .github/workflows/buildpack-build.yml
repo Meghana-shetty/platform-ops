@@ -68,16 +68,17 @@ jobs:
           FULL_IMAGE="${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
           OWNER_ID="tea-d76lgun5r7bs73c9d99g"
           
-          # 1. Search for existing service
+          # 1. Check if service exists
           LIST_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             "https://api.render.com/v1/services?name=$CLEAN_NAME")
           
           SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].id // empty')
 
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
-            echo "Service not found. Creating NEW service..."
+            echo "Service not found. Creating NEW service with the 'Image Runtime' nested schema..."
             
-            # 2. Use JQ to build the JSON - This prevents the "Invalid JSON" error
+            # 2. CREATE SERVICE (The ONLY schema that satisfies "image is required")
+            # For POST, Render wants the image inside 'image' -> 'imagePath'
             PAYLOAD=$(jq -n \
               --arg name "$CLEAN_NAME" \
               --arg owner "$OWNER_ID" \
@@ -86,10 +87,12 @@ jobs:
                 ownerId: $owner,
                 type: "web_service",
                 name: $name,
-                imagePath: $img,
                 serviceDetails: {
                   env: "image",
-                  plan: "free"
+                  plan: "free",
+                  image: {
+                    imagePath: $img
+                  }
                 }
               }')
 
@@ -103,7 +106,7 @@ jobs:
           else
             echo "Service exists ($SERVICE_ID). Updating..."
             
-            # 3. Update existing service
+            # 3. UPDATE SERVICE (For PATCH, Render wants a flat imagePath)
             UPDATE_PAYLOAD=$(jq -n --arg img "$FULL_IMAGE" '{imagePath: $img}')
 
             curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
@@ -118,16 +121,13 @@ jobs:
             FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
 
-          # Ensure we have a URL for Port.io
           if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
              FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
 
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
-
           
-                               
-          
+                                             
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
         with:
