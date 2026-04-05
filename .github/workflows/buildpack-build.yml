@@ -61,6 +61,7 @@ jobs:
 
 
 
+
       - name: Smart Deploy to Render
         id: deploy_render
         run: |
@@ -75,7 +76,7 @@ jobs:
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
             echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE SERVICE (Added the "repo" fix)
+            # 2. CREATE SERVICE (Removed 'repo' field to allow Image-only deploy)
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -83,8 +84,6 @@ jobs:
                 "ownerId": "tea-d76lgun5r7bs73c9d99g",
                 "type": "web_service",
                 "name": "'$CLEAN_NAME'",
-                "repo": "",
-                "autoDeploy": "no",
                 "serviceDetails": {
                   "env": "docker",
                   "plan": "free"
@@ -111,7 +110,7 @@ jobs:
             FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
 
-          # Fallback URL
+          # Fallback URL logic
           if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
              FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
