@@ -60,6 +60,7 @@ jobs:
           curl -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" https://api.render.com/v1/owners
 
 
+
       - name: Smart Deploy to Render
         id: deploy_render
         run: |
@@ -74,8 +75,7 @@ jobs:
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
             echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE SERVICE (The "Image-Only" configuration)
-            # We use type: "web_service" but omit the repo and set ownerId correctly
+            # 2. CREATE SERVICE (Top-level imagePath for env: image)
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -83,10 +83,10 @@ jobs:
                 "ownerId": "tea-d76lgun5r7bs73c9d99g",
                 "type": "web_service",
                 "name": "'$CLEAN_NAME'",
+                "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest",
                 "serviceDetails": {
                   "env": "image",
-                  "plan": "free",
-                  "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+                  "plan": "free"
                 }
               }')
             
@@ -115,8 +115,9 @@ jobs:
           fi
 
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
-   
 
+
+      
           
           
       - name: Update Port Entity
