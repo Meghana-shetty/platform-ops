@@ -90,7 +90,7 @@ jobs:
                   \"env\": \"image\",
                   \"plan\": \"free\",
                   \"image\": {
-                    \"imagePath\": \"$FULL_IMAGE\"
+                    \"url\": \"$FULL_IMAGE\"
                   }
                 }
               }")
