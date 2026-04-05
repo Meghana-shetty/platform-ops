@@ -75,7 +75,7 @@ jobs:
               -d '{
                 "type": "web_service",
                 "name": "'$CLEAN_NAME'",
-                "ownerId": "${{ secrets.RENDER_OWNER_ID }}",
+                "ownerId": "usr-d76lgun5r7bs73c9d99g",
                 "serviceDetails": {
                   "env": "docker",
                   "plan": "free"
