@@ -125,7 +125,12 @@ jobs:
           fi
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
-
+          # This is the key part:
+          # If CLEAN_NAME is "netflix112:latest", this turns it into "netflix112-latest"
+          SAFE_URL_NAME=$(echo "${{ steps.casing.outputs.IMAGE }}:latest" | sed 's/:/-/g')
+          
+          # Now set the output using the safe name
+          echo "FINAL_URL=https://$SAFE_URL_NAME.onrender.com" >> $GITHUB_OUTPUT
 
       - name: Extract Repo Name
         id: repo_name
