@@ -75,11 +75,10 @@ jobs:
           SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].id // empty')
 
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
-            echo "Service not found. Creating NEW service with root 'image' key..."
+            echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE SERVICE (The most direct schema)
-            # We use "image" at the root level.
-            PAYLOAD=$(jq -n \
+            # 2. Build JSON into a FILE to prevent shell-parsing errors
+            jq -n \
               --arg name "$CLEAN_NAME" \
               --arg owner "$OWNER_ID" \
               --arg img "$FULL_IMAGE" \
@@ -87,30 +86,31 @@ jobs:
                 ownerId: $owner,
                 type: "web_service",
                 name: $name,
-                image: $img,
+                imagePath: $img,
                 serviceDetails: {
                   env: "image",
                   plan: "free"
                 }
-              }')
+              }' > render_payload.json
 
+            # 3. POST using the file (@ notation)
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
-              -d "$PAYLOAD")
+              -d @render_payload.json)
             
             echo "RENDER_RESPONSE: $RESPONSE"
             FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // empty')
           else
             echo "Service exists ($SERVICE_ID). Updating..."
             
-            # 3. UPDATE SERVICE
-            UPDATE_PAYLOAD=$(jq -n --arg img "$FULL_IMAGE" '{image: $img}')
+            # 4. PATCH using the file
+            jq -n --arg img "$FULL_IMAGE" '{imagePath: $img}' > update_payload.json
 
             curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
-              -d "$UPDATE_PAYLOAD"
+              -d @update_payload.json
             
             # Trigger the deploy
             curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
@@ -119,13 +119,14 @@ jobs:
             FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
 
+          # Output to GitHub Actions
           if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
              FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
-
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
-                            
-                                             
+
+          
+                                                  
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
         with:
