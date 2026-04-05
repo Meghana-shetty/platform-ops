@@ -91,7 +91,7 @@ jobs:
                 \"serviceDetails\": {
                 \"env\": \"image\",
                 \"plan\": \"free\",
-                \"image\": { \"url\": \"$FULL_IMAGE\" }
+                \"image\": { \"dockerImage\": \"$FULL_IMAGE\" }
               }
                   }
                 ")
