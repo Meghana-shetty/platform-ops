@@ -75,7 +75,7 @@ jobs:
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
             echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE SERVICE (Top-level imagePath for env: image)
+            # 2. CREATE SERVICE (The exact schema for Image Runtime)
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -83,10 +83,10 @@ jobs:
                 "ownerId": "tea-d76lgun5r7bs73c9d99g",
                 "type": "web_service",
                 "name": "'$CLEAN_NAME'",
-                "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest",
                 "serviceDetails": {
                   "env": "image",
-                  "plan": "free"
+                  "plan": "free",
+                  "image": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
                 }
               }')
             
@@ -100,7 +100,9 @@ jobs:
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
               -d '{
-                "imagePath": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+                "serviceDetails": {
+                  "image": "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+                }
               }')
             
             curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
@@ -117,8 +119,8 @@ jobs:
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
 
-      
           
+              
           
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
