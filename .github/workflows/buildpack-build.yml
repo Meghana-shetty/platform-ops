@@ -73,10 +73,9 @@ jobs:
           SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].id // empty')
 
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
-            echo "Service not found. Creating NEW service..."
+            echo "Service not found. Creating NEW service using Docker Runtime..."
             
-            # 2. CREATE SERVICE (The 'Existing Image' logic)
-            # We provide imagePath at the root AND env: image in details
+            # 2. CREATE SERVICE (Standard Docker Schema)
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -86,8 +85,9 @@ jobs:
                 \"name\": \"$CLEAN_NAME\",
                 \"imagePath\": \"$FULL_IMAGE\",
                 \"serviceDetails\": {
-                  \"env\": \"image\",
-                  \"plan\": \"free\"
+                  \"env\": \"docker\",
+                  \"plan\": \"free\",
+                  \"region\": \"oregon\"
                 }
               }")
             
@@ -117,8 +117,8 @@ jobs:
 
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
-   
-                
+          
+                    
           
       - name: Update Port Entity
         uses: port-labs/port-github-action@v1
