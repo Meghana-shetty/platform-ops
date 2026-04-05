@@ -60,46 +60,70 @@ jobs:
           curl -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" https://api.render.com/v1/owners
 
 
+
       - name: Smart Deploy to Render
         id: deploy_render
         run: |
-          CLEAN_NAME="${{ steps.casing.outputs.IMAGE }}"
+          CLEAN_NAME="${{ steps.casing.outputs.IMAGE }}:latest"
           FULL_IMAGE="${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+          OWNER_ID="tea-d76lgun5r7bs73c9d99g"
           
-          echo "Syncing deployment for: $CLEAN_NAME"
-
-          # 1. Fetch the Service ID from Render by name
+          # 1. Search for existing service by name
           LIST_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             "https://api.render.com/v1/services?name=$CLEAN_NAME")
           
-          SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].id // empty')
+          # Extract Service ID correctly from the list response
+          SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].service.id // empty')
 
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
-            echo "::error:: Service '$CLEAN_NAME' not found. Ensure it was created in Render UI."
-            exit 1
+            echo "Service not found. Creating NEW service using Docker Runtime Schema..."
+            
+            # 2. THE DOCKER SCHEMA: Root level imagePath for creation
+            jq -n \
+              --arg name "$CLEAN_NAME" \
+              --arg owner "$OWNER_ID" \
+              --arg img "$FULL_IMAGE" \
+              '{
+                ownerId: $owner,
+                type: "web_service",
+                name: $name,
+                imagePath: $img,
+                serviceDetails: {
+                  env: "docker",
+                  plan: "free",
+                  region: "oregon"
+                }
+              }' > render_payload.json
+
+            RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d @render_payload.json)
+            
+            echo "RENDER_RESPONSE: $RESPONSE"
+            FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // empty')
+          else
+            echo "Service exists ($SERVICE_ID). Updating..."
+            
+            # 3. UPDATE SERVICE: Patching existing service with imagePath
+            jq -n --arg img "$FULL_IMAGE" '{imagePath: $img}' > update_payload.json
+
+            curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d @update_payload.json
+            
+            # Trigger the deployment
+            curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
+            
+            FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
 
-          echo "Found Service ID: $SERVICE_ID. Updating image to $FULL_IMAGE..."
-
-          # 2. PATCH the existing service with the new GHCR image path
-          # Using the @file method to ensure JSON integrity
-          jq -n --arg img "$FULL_IMAGE" '{imagePath: $img}' > update_payload.json
-          
-          curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
-            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d @update_payload.json
-
-          # 3. Explicitly trigger a new deployment for that image
-          DEPLOY_RES=$(curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
-            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}")
-          
-          echo "Deploy Triggered Successfully."
-          
-          # 4. Set the final URL for your Port.io Entity
-          echo "FINAL_URL=https://$CLEAN_NAME.onrender.com" >> $GITHUB_OUTPUT
-
-          
+          if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
+             FINAL_URL="https://$CLEAN_NAME.onrender.com"
+          fi
+          echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
                    
                                                   
