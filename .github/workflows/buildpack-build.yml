@@ -60,7 +60,6 @@ jobs:
           curl -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" https://api.render.com/v1/owners
 
 
-
       - name: Smart Deploy to Render
         id: deploy_render
         run: |
@@ -72,27 +71,32 @@ jobs:
           LIST_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
             "https://api.render.com/v1/services?name=$CLEAN_NAME")
           
-          # Extract Service ID correctly from the list response
           SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].service.id // empty')
 
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
-            echo "Service not found. Creating NEW service using Docker Runtime Schema..."
+            echo "Service not found. Creating NEW service using Verified Schema..."
             
-            # 2. THE DOCKER SCHEMA: Root level imagePath for creation
+            # 2. THE VERIFIED POSTMAN SCHEMA
             jq -n \
               --arg name "$CLEAN_NAME" \
               --arg owner "$OWNER_ID" \
               --arg img "$FULL_IMAGE" \
               '{
-                ownerId: $owner,
                 type: "web_service",
-                name: $name,
-                imagePath: $img,
+                autoDeploy: "yes",
+                image: {
+                  ownerId: $owner,
+                  imagePath: $img
+                },
                 serviceDetails: {
-                  env: "docker",
+                  buildPlan: "starter",
+                  pullRequestPreviewsEnabled: "no",
+                  env: "image",
                   plan: "free",
-                  region: "oregon"
-                }
+                  previews: { generation: "off" }
+                },
+                name: $name,
+                ownerId: $owner
               }' > render_payload.json
 
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
@@ -100,12 +104,13 @@ jobs:
               -H "Content-Type: application/json" \
               -d @render_payload.json)
             
-            echo "RENDER_RESPONSE: $RESPONSE"
+            echo "RENDER_CREATE_RESPONSE: $RESPONSE"
+            # Extract URL from creation response
             FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // empty')
           else
             echo "Service exists ($SERVICE_ID). Updating..."
             
-            # 3. UPDATE SERVICE: Patching existing service with imagePath
+            # 3. UPDATE SERVICE (Existing Patch Logic)
             jq -n --arg img "$FULL_IMAGE" '{imagePath: $img}' > update_payload.json
 
             curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
@@ -120,18 +125,18 @@ jobs:
             FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
 
+          # Sanitize the URL for Port.io (Replace : with -)
+          SAFE_URL_NAME=$(echo "$CLEAN_NAME" | sed 's/:/-/g')
           if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
-             FINAL_URL="https://$CLEAN_NAME.onrender.com"
+             FINAL_URL="https://$SAFE_URL_NAME.onrender.com"
           fi
+          
+          # Fix the URL if it still has a colon
+          FINAL_URL=$(echo "$FINAL_URL" | sed 's/:/-/g')
+          
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
-          # This is the key part:
-          # If CLEAN_NAME is "netflix112:latest", this turns it into "netflix112-latest"
-          SAFE_URL_NAME=$(echo "${{ steps.casing.outputs.IMAGE }}:latest" | sed 's/:/-/g')
           
-          # Now set the output using the safe name
-          echo "FINAL_URL=https://$SAFE_URL_NAME.onrender.com" >> $GITHUB_OUTPUT
-
       - name: Extract Repo Name
         id: repo_name
         run: echo "NAME=$(echo ${{ github.event.inputs.repository_full_name }} | cut -d'/' -f2)" >> $GITHUB_OUTPUT
