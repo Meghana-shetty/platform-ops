@@ -60,11 +60,13 @@ jobs:
           curl -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" https://api.render.com/v1/owners
 
 
+
       - name: Smart Deploy to Render
         id: deploy_render
         run: |
           CLEAN_NAME="${{ steps.casing.outputs.IMAGE }}"
           FULL_IMAGE="${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+          OWNER_ID="tea-d76lgun5r7bs73c9d99g"
           
           # 1. Search for existing service
           LIST_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
@@ -75,48 +77,55 @@ jobs:
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
             echo "Service not found. Creating NEW service..."
             
-            # 2. CREATE SERVICE
-            # Key fix: Use "image" at the root, and "image" as the env.
+            # 2. Use JQ to build the JSON - This prevents the "Invalid JSON" error
+            PAYLOAD=$(jq -n \
+              --arg name "$CLEAN_NAME" \
+              --arg owner "$OWNER_ID" \
+              --arg img "$FULL_IMAGE" \
+              '{
+                ownerId: $owner,
+                type: "web_service",
+                name: $name,
+                imagePath: $img,
+                serviceDetails: {
+                  env: "image",
+                  plan: "free"
+                }
+              }')
+
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
-              -d "{
-                \"ownerId\": \"tea-d76lgun5r7bs73c9d99g\",
-                \"type\": \"web_service\",
-                \"name\": \"$CLEAN_NAME\",
-                \"image\": \"$FULL_IMAGE\",
-                \"serviceDetails\": {
-                  \"env\": \"image\",
-                  \"plan\": \"free\"
-                }
-              }")
+              -d "$PAYLOAD")
             
             echo "RENDER_RESPONSE: $RESPONSE"
             FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // empty')
           else
             echo "Service exists ($SERVICE_ID). Updating..."
             
-            # 3. UPDATE SERVICE
-            # Patching an existing image-based service
-            UPDATE_RESPONSE=$(curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
+            # 3. Update existing service
+            UPDATE_PAYLOAD=$(jq -n --arg img "$FULL_IMAGE" '{imagePath: $img}')
+
+            curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
-              -d "{
-                \"image\": \"$FULL_IMAGE\"
-              }")
+              -d "$UPDATE_PAYLOAD"
             
+            # Trigger the deploy
             curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
             
             FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
 
+          # Ensure we have a URL for Port.io
           if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
              FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
 
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
+          
                                
           
       - name: Update Port Entity
