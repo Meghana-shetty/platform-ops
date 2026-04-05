@@ -60,6 +60,8 @@ jobs:
           curl -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" https://api.render.com/v1/owners
 
 
+
+      
       - name: Smart Deploy to Render
         id: deploy_render
         run: |
@@ -86,14 +88,11 @@ jobs:
                 \"ownerId\": \"tea-d76lgun5r7bs73c9d99g\",
                 \"type\": \"web_service\",
                 \"name\": \"$CLEAN_NAME\",
-                \"serviceDetails\": {
-                  \"env\": \"docker\",
-                  \"plan\": \"free\",
-                  \"image\": {
-                    \"url\": \"$FULL_IMAGE\"
+                \"env\": \"docker\",
+                \"image\": { \"url\": \"$FULL_IMAGE\" },
+                \"plan\": \"free\"
                   }
-                }
-              }")
+                ")
             
             echo "RENDER_RESPONSE: $RESPONSE"
             FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // empty')
@@ -105,8 +104,8 @@ jobs:
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
               -d "{
-                \"url\": \"$FULL_IMAGE\"
-              }")
+                \"image\": { \"url\": \"$FULL_IMAGE\" }
+                }")
             
             echo "UPDATE_RESPONSE: $UPDATE_RESPONSE"
 
