@@ -75,9 +75,9 @@ jobs:
           SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].id // empty')
 
           if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
-            echo "Service not found. Creating NEW service..."
+            echo "Service not found. Creating NEW service with Nested Schema..."
             
-            # 2. Build JSON into a FILE to prevent shell-parsing errors
+            # 2. THE NESTED SCHEMA: Matches "image is required" validation
             jq -n \
               --arg name "$CLEAN_NAME" \
               --arg owner "$OWNER_ID" \
@@ -86,14 +86,15 @@ jobs:
                 ownerId: $owner,
                 type: "web_service",
                 name: $name,
-                imagePath: $img,
                 serviceDetails: {
                   env: "image",
-                  plan: "free"
+                  plan: "free",
+                  image: {
+                    imagePath: $img
+                  }
                 }
               }' > render_payload.json
 
-            # 3. POST using the file (@ notation)
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
               -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
               -H "Content-Type: application/json" \
@@ -104,7 +105,7 @@ jobs:
           else
             echo "Service exists ($SERVICE_ID). Updating..."
             
-            # 4. PATCH using the file
+            # 3. UPDATE SERVICE (PATCH uses a flat imagePath)
             jq -n --arg img "$FULL_IMAGE" '{imagePath: $img}' > update_payload.json
 
             curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
@@ -119,7 +120,6 @@ jobs:
             FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
 
-          # Output to GitHub Actions
           if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
              FINAL_URL="https://$CLEAN_NAME.onrender.com"
           fi
