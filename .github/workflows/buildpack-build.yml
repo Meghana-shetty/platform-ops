@@ -126,14 +126,21 @@ jobs:
           fi
 
           # Sanitize the URL for Port.io (Replace : with -)
-          SAFE_URL_NAME=$(echo "$CLEAN_NAME" | sed 's/:/-/g')
-          if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
-             FINAL_URL="https://$SAFE_URL_NAME.onrender.com"
-          fi
+          #SAFE_URL_NAME=$(echo "$CLEAN_NAME" | sed 's/:/-/g')
+          #if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
+            # FINAL_URL="https://$SAFE_URL_NAME.onrender.com"
+          #fi
           
           # Fix the URL if it still has a colon
-          FINAL_URL=$(echo "$FINAL_URL" | sed 's/:/-/g')
+          #FINAL_URL=$(echo "$FINAL_URL" | sed 's/:/-/g')
           
+          #echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
+          # Final Sanitization for Port.io
+          # We manually build the URL to ensure the https:// stays intact
+          CLEAN_ID="${{ steps.casing.outputs.IMAGE }}"
+          FINAL_URL="https://$CLEAN_ID-latest.onrender.com"
+          
+          echo "DEBUG: Final URL being sent to Port: $FINAL_URL"
           echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
 
           
