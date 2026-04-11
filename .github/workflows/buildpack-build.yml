@@ -49,14 +49,10 @@ jobs:
         run: |
           pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
             --builder paketobuildpacks/builder:full \
-            --buildpack "docker.io/paketo-buildpacks/nodejs" \
-            --buildpack "docker.io/paketo-buildpacks/procfile" \
-            --buildpack "docker.io/paketo-buildpacks/nginx" \
             --env "BP_NODE_VERSION=18.x" \
-            --env "BP_WEB_SERVER=nginx" \
-            --env "BP_WEB_SERVER_ROOT=public" \
+            --env "BP_CPYTHON_VERSION=3.11.x" \
+            --env "BP_LAUNCHPOINT=index.js" \
             --publish
-            
 
       - name: Find My Real Render ID
         run: |
