@@ -49,9 +49,9 @@ jobs:
         run: |
           pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
             --builder paketobuildpacks/builder:full \
-            --buildpack "paketo-buildpacks/nodejs" \
-            --buildpack "paketo-buildpacks/procfile" \
-            --buildpack "paketo-buildpacks/nginx" \
+            --buildpack "docker://gcr.io/paketo-buildpacks/nodejs" \
+            --buildpack "docker://gcr.io/paketo-buildpacks/procfile" \
+            --buildpack "docker://gcr.io/paketo-buildpacks/nginx" \
             --env "BP_NODE_VERSION=18.x" \
             --env "BP_WEB_SERVER=nginx" \
             --env "BP_WEB_SERVER_ROOT=public" \
