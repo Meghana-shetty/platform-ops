@@ -47,12 +47,25 @@ jobs:
 
       - name: Build with Paketo
         run: |
+          # 1. Set base environment variables that don't break other languages
+          export BP_NODE_VERSION="18.x"
+          
+          # 2. Check specifically for your Static HTML structure
+          # If public/index.html exists AND package.json DOES NOT, help Nginx
+          if [ -d "public" ] && [ ! -f "package.json" ]; then
+            echo "Directing Paketo to treat this as a Static Nginx project..."
+            export BP_WEB_SERVER="nginx"
+            export BP_WEB_SERVER_ROOT="public"
+          fi
+
+          # 3. Run a single, clean pack build
           pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
             --builder paketobuildpacks/builder:full \
-            --env "BP_NODE_VERSION=18.x" \
-            --env "BP_WEB_SERVER=nginx" \
-            --env "BP_WEB_SERVER_ROOT=public" \
+            --env "BP_NODE_VERSION=$BP_NODE_VERSION" \
+            --env "BP_WEB_SERVER=$BP_WEB_SERVER" \
+            --env "BP_WEB_SERVER_ROOT=$BP_WEB_SERVER_ROOT" \
             --publish
+            
 
       - name: Find My Real Render ID
         run: |
