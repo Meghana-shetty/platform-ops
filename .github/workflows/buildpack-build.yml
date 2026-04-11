@@ -45,12 +45,15 @@ jobs:
           echo "IMAGE=$LOWER_IMAGE" >> $GITHUB_OUTPUT
           echo "FULL_IMAGE_URL=ghcr.io/$LOWER_OWNER/$LOWER_IMAGE" >> $GITHUB_OUTPUT
 
+
       - name: Build with Paketo
         run: |
           pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
             --builder paketobuildpacks/builder:full \
+            --buildpack paketo-buildpacks/nodejs \
+            --buildpack paketo-buildpacks/procfile \
+            --buildpack paketo-buildpacks/nginx \
             --env "BP_NODE_VERSION=18.x" \
-            --env "BP_LAUNCHPOINT=index.js" \
             --env "BP_WEB_SERVER=nginx" \
             --env "BP_WEB_SERVER_ROOT=." \
             --publish
