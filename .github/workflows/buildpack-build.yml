@@ -50,8 +50,8 @@ jobs:
           pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
             --builder paketobuildpacks/builder:full \
             --env "BP_NODE_VERSION=18.x" \
-            --env "BP_CPYTHON_VERSION=3.11.x" \
-            --env "BP_LAUNCHPOINT=index.js" \
+            --env "BP_WEB_SERVER=nginx" \
+            --env "BP_WEB_SERVER_ROOT=public" \
             --publish
 
       - name: Find My Real Render ID
