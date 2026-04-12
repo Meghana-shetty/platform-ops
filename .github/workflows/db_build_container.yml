@@ -59,37 +59,50 @@ jobs:
               echo "❌ Failed to generate composer.lock"
               exit 1
             fi
-          fi          
+          fi       
 
-      - name: Build with Paketo
+
+      - name: Build with Paketo (Universal Standard)
         run: |
+          # 1. NODE.JS FLOW
           if [ -f "package.json" ]; then
-            echo "Building Node.js App..."
+            echo "📦 Building Node.js App..."
             pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
               --builder paketobuildpacks/builder:full \
               --env BP_NODE_VERSION=20 \
               --publish
 
-          elif [ -f "composer.json" ] || find . -name "index.php" | grep -q "."; then
-            echo "Building PHP Cafe App..."
+          # 2. PHP FLOW (Now looking at Root)
+          elif [ -f "index.php" ] || [ -f "composer.json" ]; then
+            echo "🐘 Building PHP App from Root..."
             pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
               --builder paketobuildpacks/builder:full \
               --env BP_PHP_SERVER=nginx \
-              --env BP_PHP_WEB_DIR=mompopcafe \
               --env BP_COMPOSER_INSTALL_OPTIONS=--ignore-platform-reqs \
-              --env DATABASE_URL="${{ secrets.DATABASE_URL }}" \
               --publish
-              
 
+          # 3. STATIC SITE FLOW
           elif [ -d "public" ]; then
-            echo "Building Static Site..."
+            echo "🌐 Building Static Site..."
             pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
               --builder paketobuildpacks/builder:full \
               --env BP_WEB_SERVER=nginx \
               --env BP_WEB_SERVER_ROOT=public \
               --publish
+          
+          # 4. PYTHON / OTHER AUTO-DETECT
+          elif [ -f "requirements.txt" ]; then
+            echo "🐍 Building Python App..."
+            pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
+              --builder paketobuildpacks/builder:full \
+              --publish
+
+          else
+            echo "❌ No supported app structure found in root!"
+            exit 1
           fi
 
+          
       - name: Find My Real Render ID
         run: |
           echo "Fetching valid Owner IDs for this API Key..."
