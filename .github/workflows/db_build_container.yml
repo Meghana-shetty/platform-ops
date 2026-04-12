@@ -100,7 +100,10 @@ jobs:
 
           else
             echo "❌ No supported app structure found in root!"
-            exit 1
+            echo "🚀 Auto-Detecting Language (Go/Ruby)..."
+            pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
+              --builder paketobuildpacks/builder:full \
+              --publish
           fi
 
           
