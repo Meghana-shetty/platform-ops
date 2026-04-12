@@ -44,37 +44,37 @@ jobs:
           echo "OWNER=$LOWER_OWNER" >> $GITHUB_OUTPUT
           echo "IMAGE=$LOWER_IMAGE" >> $GITHUB_OUTPUT
           echo "FULL_IMAGE_URL=ghcr.io/$LOWER_OWNER/$LOWER_IMAGE" >> $GITHUB_OUTPUT
-
+            
 
       - name: Build with Paketo
         run: |
-          ENV_VARS=""
+          # 1. Initialize our base command
+          PACK_CMD="pack build ${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest --builder paketobuildpacks/builder:full --publish"
 
+          # 2. Add language-specific flags
           if [ -f "package.json" ]; then
             echo "Detected Node.js"
-            ENV_VARS="--env BP_NODE_VERSION=20"
+            PACK_CMD="$PACK_CMD --env BP_NODE_VERSION=20"
           elif [ -f "composer.json" ] || find . -name "index.php" | grep -q "."; then
             echo "Detected PHP (Cafe App)"
-            # This flag tells Composer to install even without a lock file
-            ENV_VARS="--env BP_PHP_SERVER=nginx --env BP_COMPOSER_INSTALL_OPTIONS='--no-install --no-scripts'"
+            # We pass the composer options as a simple string without extra internal quotes
+            PACK_CMD="$PACK_CMD --env BP_PHP_SERVER=nginx --env BP_COMPOSER_INSTALL_OPTIONS=--ignore-platform-reqs"
           elif [ -d "public" ]; then
             echo "Detected Static HTML"
-            ENV_VARS="--env BP_WEB_SERVER=nginx --env BP_WEB_SERVER_ROOT=public"
+            PACK_CMD="$PACK_CMD --env BP_WEB_SERVER=nginx --env BP_WEB_SERVER_ROOT=public"
           fi
 
-          # 3. Inject the Database Secret (CRITICAL for Neon)
+          # 3. Add Database Secret if it exists
           if [ ! -z "${{ secrets.DATABASE_URL }}" ]; then
-            echo "Injecting DATABASE_URL into container environment"
-            ENV_VARS="$ENV_VARS --env DATABASE_URL=${{ secrets.DATABASE_URL }}"
+            echo "Injecting DATABASE_URL into build"
+            PACK_CMD="$PACK_CMD --env DATABASE_URL=${{ secrets.DATABASE_URL }}"
           fi
 
-          # 4. Execute Build using the Paketobuildpacks Full Builder
-          pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
-            --builder paketobuildpacks/builder:full \
-            $ENV_VARS \
-            --publish
-            
+          # 4. Run the final constructed command
+          eval $PACK_CMD
 
+          
+      
       - name: Find My Real Render ID
         run: |
           echo "Fetching valid Owner IDs for this API Key..."
