@@ -45,19 +45,18 @@ jobs:
           echo "IMAGE=$LOWER_IMAGE" >> $GITHUB_OUTPUT
           echo "FULL_IMAGE_URL=ghcr.io/$LOWER_OWNER/$LOWER_IMAGE" >> $GITHUB_OUTPUT
 
+
       - name: Build with Paketo
         run: |
-          # 1. Start with an empty string for Env Vars
           ENV_VARS=""
 
-          # 2. Smart Language Detection
           if [ -f "package.json" ]; then
             echo "Detected Node.js"
             ENV_VARS="--env BP_NODE_VERSION=20"
           elif [ -f "composer.json" ] || find . -name "index.php" | grep -q "."; then
             echo "Detected PHP (Cafe App)"
-            # This ensures the buildpack uses Nginx to serve the PHP
-            ENV_VARS="--env BP_PHP_SERVER=nginx"
+            # This flag tells Composer to install even without a lock file
+            ENV_VARS="--env BP_PHP_SERVER=nginx --env BP_COMPOSER_INSTALL_OPTIONS='--no-install --no-scripts'"
           elif [ -d "public" ]; then
             echo "Detected Static HTML"
             ENV_VARS="--env BP_WEB_SERVER=nginx --env BP_WEB_SERVER_ROOT=public"
