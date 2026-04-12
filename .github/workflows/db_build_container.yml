@@ -1,1 +1,201 @@
+name: Buildpack Build & Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      repository_full_name:
+        description: 'The repo to build (e.g., username/repo-name)'
+        required: true
+      image_name:
+        description: 'The name for the resulting image'
+        required: true
+      port_run_id:
+        description: 'The Port Run ID for status updates'
+        required: true
 
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Target Repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.repository_full_name }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+      - name: Install Pack CLI
+        run: |
+          (curl -sSL "https://github.com/buildpacks/pack/releases/download/v0.33.2/pack-v0.33.2-linux.tgz" | tar -C /usr/local/bin/ --no-same-owner -xzv pack)
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Standardize Casing (The Meghana Fix)
+        id: casing
+        run: |
+          LOWER_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          LOWER_IMAGE=$(echo "${{ github.event.inputs.image_name }}" | tr '[:upper:]' '[:lower:]')
+          echo "OWNER=$LOWER_OWNER" >> $GITHUB_OUTPUT
+          echo "IMAGE=$LOWER_IMAGE" >> $GITHUB_OUTPUT
+          echo "FULL_IMAGE_URL=ghcr.io/$LOWER_OWNER/$LOWER_IMAGE" >> $GITHUB_OUTPUT
+
+      - name: Build with Paketo
+        run: |
+          # 1. Set base environment variables that don't break other languages
+          export BP_NODE_VERSION="18.x"
+          
+          # 2. Check specifically for your Static HTML structure
+          # If public/index.html exists AND package.json DOES NOT, help Nginx
+          if [ -d "public" ] && [ ! -f "package.json" ]; then
+            echo "Directing Paketo to treat this as a Static Nginx project..."
+            export BP_WEB_SERVER="nginx"
+            export BP_WEB_SERVER_ROOT="public"
+          fi
+
+          # 3. Run a single, clean pack build
+          pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
+            --builder paketobuildpacks/builder:full \
+            --env "BP_NODE_VERSION=$BP_NODE_VERSION" \
+            --env "BP_WEB_SERVER=$BP_WEB_SERVER" \
+            --env "BP_WEB_SERVER_ROOT=$BP_WEB_SERVER_ROOT" \
+            --publish
+            
+
+      - name: Find My Real Render ID
+        run: |
+          echo "Fetching valid Owner IDs for this API Key..."
+          curl -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" https://api.render.com/v1/owners
+
+
+      - name: Smart Deploy to Render
+        id: deploy_render
+        run: |
+          CLEAN_NAME="${{ steps.casing.outputs.IMAGE }}:latest"
+          FULL_IMAGE="${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest"
+          OWNER_ID="${{ secrets.RENDER_OWNER_ID }}"
+          #"tea-d76lgun5r7bs73c9d99g"
+          
+          # 1. Search for existing service by name
+          LIST_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            "https://api.render.com/v1/services?name=$CLEAN_NAME")
+          
+          SERVICE_ID=$(echo $LIST_RESPONSE | jq -r '.[0].service.id // empty')
+
+          if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" == "null" ]; then
+            echo "Service not found. Creating NEW service using Verified Schema..."
+            
+            # 2. THE VERIFIED POSTMAN SCHEMA
+            jq -n \
+              --arg name "$CLEAN_NAME" \
+              --arg owner "$OWNER_ID" \
+              --arg img "$FULL_IMAGE" \
+              '{
+                type: "web_service",
+                autoDeploy: "yes",
+                image: {
+                  ownerId: $owner,
+                  imagePath: $img
+                },
+                serviceDetails: {
+                  buildPlan: "starter",
+                  pullRequestPreviewsEnabled: "no",
+                  env: "image",
+                  plan: "free",
+                  previews: { generation: "off" }
+                },
+                name: $name,
+                ownerId: $owner
+              }' > render_payload.json
+
+            RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d @render_payload.json)
+            
+            echo "RENDER_CREATE_RESPONSE: $RESPONSE"
+            # Extract URL from creation response
+            FINAL_URL=$(echo $RESPONSE | jq -r '.serviceDetails.url // empty')
+          else
+            echo "Service exists ($SERVICE_ID). Updating..."
+            
+            # 3. UPDATE SERVICE (Existing Patch Logic)
+            jq -n --arg img "$FULL_IMAGE" '{imagePath: $img}' > update_payload.json
+
+            curl -s -X PATCH "https://api.render.com/v1/services/$SERVICE_ID" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d @update_payload.json
+            
+            # Trigger the deployment
+            curl -s -X POST "https://api.render.com/v1/services/$SERVICE_ID/deploys" \
+              -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"
+            
+            FINAL_URL="https://$CLEAN_NAME.onrender.com"
+          fi
+
+          # Sanitize the URL for Port.io (Replace : with -)
+          #SAFE_URL_NAME=$(echo "$CLEAN_NAME" | sed 's/:/-/g')
+          #if [ -z "$FINAL_URL" ] || [ "$FINAL_URL" == "null" ]; then
+            # FINAL_URL="https://$SAFE_URL_NAME.onrender.com"
+          #fi
+          
+          # Fix the URL if it still has a colon
+          #FINAL_URL=$(echo "$FINAL_URL" | sed 's/:/-/g')
+          
+          #echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
+          # Final Sanitization for Port.io
+          # We manually build the URL to ensure the https:// stays intact
+          CLEAN_ID="${{ steps.casing.outputs.IMAGE }}"
+          FINAL_URL="https://$CLEAN_ID-latest.onrender.com"
+          
+          echo "DEBUG: Final URL being sent to Port: $FINAL_URL"
+          echo "FINAL_URL=$FINAL_URL" >> $GITHUB_OUTPUT
+
+          
+      - name: Extract Repo Name
+        id: repo_name
+        run: echo "NAME=$(echo ${{ github.event.inputs.repository_full_name }} | cut -d'/' -f2)" >> $GITHUB_OUTPUT
+
+      - name: Update Port Entity
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: UPSERT
+          identifier: ${{ steps.repo_name.outputs.NAME }} # Uses the cleaned name
+          blueprint: service
+          properties: |
+            {
+              "live_url": "${{ steps.deploy_render.outputs.FINAL_URL }}",
+              "container_image": "ghcr.io/${{ github.repository_owner }}/${{ github.event.inputs.image_name }}:latest",
+              "build_strategy": "Cloud Native Buildpack"
+            }
+
+      - name: Report Failure to Port
+        if: failure() # This only runs if any previous step fails
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ github.event.inputs.port_run_id }}
+          status: "FAILURE"
+          logMessage: "The build failed. Check GitHub Action logs for details."
+
+                                                  
+      - name: Complete Port Run
+        if: success()
+        uses: port-labs/port-github-action@v1
+        with:
+          clientId: ${{ secrets.PORT_CLIENT_ID }}
+          clientSecret: ${{ secrets.PORT_CLIENT_SECRET }}
+          operation: PATCH_RUN
+          runId: ${{ github.event.inputs.port_run_id }}
+          status: "SUCCESS"
+          logMessage: "Successfully deployed to Render: ${{ steps.deploy_render.outputs.FINAL_URL }}"
