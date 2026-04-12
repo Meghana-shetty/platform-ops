@@ -150,7 +150,13 @@ jobs:
                   previews: { generation: "off" }
                 },
                 name: $name,
-                ownerId: $owner
+                ownerId: $owner,
+                "envVars": [
+                {
+                  "key": "DATABASE_URL",
+                  "value": "${{ secrets.DATABASE_URL }}"
+                }
+                ]
               }' > render_payload.json
 
             RESPONSE=$(curl -s -X POST "https://api.render.com/v1/services" \
