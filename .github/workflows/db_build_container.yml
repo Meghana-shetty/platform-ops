@@ -48,34 +48,30 @@ jobs:
 
       - name: Build with Paketo
         run: |
-          # 1. Start with the base command
-          # We use an array-like approach to avoid quoting issues
-          OPTS=""
-
           if [ -f "package.json" ]; then
-            echo "Detected Node.js"
-            OPTS="--env BP_NODE_VERSION=20"
+            echo "Building Node.js App..."
+            pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
+              --builder paketobuildpacks/builder:full \
+              --env BP_NODE_VERSION=20 \
+              --publish
+
           elif [ -f "composer.json" ] || find . -name "index.php" | grep -q "."; then
-            echo "Detected PHP (Cafe App)"
-            # Use --ignore-platform-reqs instead of --no-scripts for a smoother build
-            OPTS="--env BP_PHP_SERVER=nginx --env BP_COMPOSER_INSTALL_OPTIONS=--ignore-platform-reqs"
+            echo "Building PHP Cafe App..."
+            pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
+              --builder paketobuildpacks/builder:full \
+              --env BP_PHP_SERVER=nginx \
+              --env BP_COMPOSER_INSTALL_OPTIONS=--ignore-platform-reqs \
+              --env DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+              --publish
+
           elif [ -d "public" ]; then
-            echo "Detected Static HTML"
-            OPTS="--env BP_WEB_SERVER=nginx --env BP_WEB_SERVER_ROOT=public"
+            echo "Building Static Site..."
+            pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
+              --builder paketobuildpacks/builder:full \
+              --env BP_WEB_SERVER=nginx \
+              --env BP_WEB_SERVER_ROOT=public \
+              --publish
           fi
-
-          # 2. Add the database secret if it exists
-          if [ ! -z "${{ secrets.DATABASE_URL }}" ]; then
-            echo "Injecting DATABASE_URL into build"
-            OPTS="$OPTS --env DATABASE_URL=${{ secrets.DATABASE_URL }}"
-          fi
-
-          # 3. Execute the build
-          # By not wrapping $OPTS in quotes here, the shell expands the flags correctly
-          pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
-            --builder paketobuildpacks/builder:full \
-            $OPTS \
-            --publish
             
       
       - name: Find My Real Render ID
