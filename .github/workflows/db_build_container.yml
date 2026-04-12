@@ -46,6 +46,21 @@ jobs:
           echo "FULL_IMAGE_URL=ghcr.io/$LOWER_OWNER/$LOWER_IMAGE" >> $GITHUB_OUTPUT
 
 
+      - name: Resolve Dependencies (Cloud Native)
+        run: |
+          if [ -f "composer.json" ]; then
+            echo "Generating composer.lock via Docker..."
+            # Use the official composer image to generate the lock file
+            docker run --rm -v $(pwd):/app -w /app composer update --ignore-platform-reqs --no-install --no-scripts
+            
+            if [ -f "composer.lock" ]; then
+              echo "✅ composer.lock generated successfully."
+            else
+              echo "❌ Failed to generate composer.lock"
+              exit 1
+            fi
+          fi          
+
       - name: Build with Paketo
         run: |
           if [ -f "package.json" ]; then
@@ -72,8 +87,7 @@ jobs:
               --env BP_WEB_SERVER_ROOT=public \
               --publish
           fi
-            
-      
+
       - name: Find My Real Render ID
         run: |
           echo "Fetching valid Owner IDs for this API Key..."
