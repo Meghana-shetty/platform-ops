@@ -154,7 +154,7 @@ jobs:
                 "envVars": [
                 {
                   "key": "DATABASE_URL",
-                  "value": "${{ secrets.DATABASE_URL }}"
+                  "value": "${{ secrets.DBASE_URL }}"
                 }
                 ]
               }' > render_payload.json
