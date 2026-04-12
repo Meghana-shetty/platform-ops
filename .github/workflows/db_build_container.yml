@@ -78,6 +78,7 @@ jobs:
             pack build "${{ steps.casing.outputs.FULL_IMAGE_URL }}:latest" \
               --builder paketobuildpacks/builder:full \
               --env BP_PHP_SERVER=nginx \
+              --env BP_PHP_WEB_DIR="." \
               --env BP_COMPOSER_INSTALL_OPTIONS=--ignore-platform-reqs \
               --publish
 
